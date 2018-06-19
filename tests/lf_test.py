@@ -46,7 +46,7 @@ with bl.model.Model() as m2:
     y0 = np.array([100])
     obs_process = BirthDeathProcess("birth_death", y0, br, dr, 3, times = data[:,0], observed = data[:,1])
 
-    chain, tchain = bl.sampling.metropolis_hastings(m2, n_iter = 5000)
+    chain, tchain = bl.sampling.metropolis_hastings(m2, n_iter = 1000, init_params = np.array([1.38175, 0.81]))
     bl.utils.save_chain(tchain, "chain.csv")
     plt.hist(tchain[500:,0])
     plt.show()

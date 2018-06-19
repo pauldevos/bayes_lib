@@ -3,22 +3,29 @@ from scipy.stats import norm, multivariate_normal
 
 from .model import Model, SimulationModel
 
-def metropolis_hastings(m, n_iter = 1000):
+def metropolis_hastings(m, init_params = None, n_iter = 1000):
     #if not isinstance(m, Model):
     #    raise TypeError("Wrong model type!")
 
     chain = []
     tchain = []
     
-    pos = m.get_param_vector()
-    cpos = m.get_constrained_params()
+    if init_params is None:
+        pos = m.get_param_vector()
+        cpos = m.get_constrained_params()
+    else:
+        m.set_param_vector(init_params)
+        pos = m.get_param_vector()
+        cpos = m.get_constrained_params()
+
     N_params = pos.shape[0]
     lpdf = m.log_density()
 
     for i in range(n_iter):
-
+        print("%d \r" % (i+1))
         # Sample a proposal
-        new_pos = np.random.multivariate_normal(pos, np.eye(N_params))
+        pert = np.exp(np.random.multivariate_normal(np.zeros(pos.shape), 0.01 * np.eye(N_params)))
+        new_pos = pos * pert
         m.set_param_vector(new_pos)
         new_lpdf = m.log_density()
         forward_kernel = multivariate_normal.logpdf(pos, new_pos, np.eye(N_params))

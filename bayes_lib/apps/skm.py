@@ -3,6 +3,7 @@ import abc
 from scipy.stats import norm
 
 from ..rvs import RandomVariable, get_rv_value
+import time
 
 class StochasticKineticRandomVariable(RandomVariable):
 
@@ -26,38 +27,38 @@ class StochasticKineticRandomVariable(RandomVariable):
         if v is None:
             v = self.cvalue
             jd = self.jdet
-
+        
         rate_fx = self.gen_rate_fx()
         
         T = self.times.shape[0]
-        particles = np.zeros((n_smc, T))
+        if len(v.shape) == 1:
+            N = 1
+        else:
+            N = v.shape[1]
+        particles = np.zeros((n_smc, N, T))
 
         # Sample initial latent paths
         for i in range(n_smc):
-            particles[i,0] = get_rv_value(self.y0, s = True)
+            particles[i,:,0] = get_rv_value(self.y0, s = True)
 
         llhood_est = 0
         
         # SMC for each time interval
         weights = 1/n_smc * np.ones(n_smc)
-        for i in range(1, T):
-            new_weights = np.ones(n_smc)
-            for j in range(n_smc):
-                # Resample each particle according to the weight
-                resampled_particles = particles[np.random.choice(list(range(n_smc)), p = weights), i-1]
-
-                # Evolve the particle to the next observation time
-                z = self.gillespie_simulate(np.array([resampled_particles]), self.reactions, rate_fx, times = np.array([0,self.times[i] - self.times[i-1]]))
-                if z is None:
-                    return -np.inf
-                particles[j,i] = z[1,1]
-                new_weights[j] = self.obs_log_likelihood(v[i], particles[j,i])
+        deltas = np.diff(self.times)
+        for i in range(1,T):
+            resampled_indices = np.random.choice(list(range(n_smc)), n_smc, p = weights, replace = True)
+            resampled_particles = particles[resampled_indices, :, i-1]
+            res = list(map(lambda x: self.gillespie_simulate(x, self.reactions, rate_fx, np.array([0,deltas[i-1]])), resampled_particles))
+            new_weights = [-np.inf if r is None else self.obs_log_likelihood(v[i], r[1,1:]) for r in res]
+            particles[:,:,i] = np.array([0 if r is None else r[1,1:] for r in res])
             n = np.exp(new_weights)
             d = sum(n)
             if d == 0:
                 return -np.inf
             else:
                 weights = n/d
+            weights = weights[:,0]
             llhood_est += np.mean(new_weights)
         return llhood_est
     
