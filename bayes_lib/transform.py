@@ -3,6 +3,12 @@ import abc
 
 from .math.utils import logit, inv_logit
 
+"""
+Abstract Class defining a Random Variable transformation.
+Defines how to transform from constrained to unconstrained,
+how to transfrom from unconstrained to constrained, and how
+to compute the determinant of the jacobian of the transform.
+"""
 class RVTransform(abc.ABC):
     
     # Defines transform from constrained to unconstrained
@@ -20,6 +26,9 @@ class RVTransform(abc.ABC):
     def transform_jacobian_det(self, x):
         return
 
+"""
+Collection of pre-defined transforms
+"""
 class LowerBoundRVTransform(RVTransform):
     
     def __init__(self, lb):

@@ -1,7 +1,7 @@
 import numpy as np
 from scipy.stats import norm, multivariate_normal
 
-from .model import Model, SimulationModel
+from .model import Model
 
 def metropolis_hastings(m, init_params = None, n_iter = 1000):
     #if not isinstance(m, Model):
@@ -22,10 +22,10 @@ def metropolis_hastings(m, init_params = None, n_iter = 1000):
     lpdf = m.log_density()
 
     for i in range(n_iter):
-        print("%d \r" % (i+1))
+        print(i)
         # Sample a proposal
-        pert = np.exp(np.random.multivariate_normal(np.zeros(pos.shape), 0.01 * np.eye(N_params)))
-        new_pos = pos * pert
+        pert = np.random.multivariate_normal(np.zeros(pos.shape), 0.01 * np.eye(N_params))
+        new_pos = pos * np.exp(pert)
         m.set_param_vector(new_pos)
         new_lpdf = m.log_density()
         forward_kernel = multivariate_normal.logpdf(pos, new_pos, np.eye(N_params))

@@ -1,21 +1,29 @@
 import numpy as np
-from scipy.stats import norm, gamma
+from scipy.stats import norm, gamma, lognorm
 import abc
+import collections
 
 from .model import Model
 from .transform import LowerBoundRVTransform, LowerUpperBoundRVTransform
 
-# Get value from RV or return the int/float that it represents
-# if s = True, samples from the random variable instead
+"""
+Option like method which returns a sampled value from a random variable
+or the passed in value if it is not a random variable
+"""
 def get_rv_value(rv, s = False):
     if isinstance(rv, RandomVariable):
         if s:
-            return rv.sample()
+            return rv.sample(apply_transform = True)
         else:
             return rv.cvalue
+    elif isinstance(rv, collections.Iterable):
+        return np.array([get_rv_value(v, s = s) for v in rv])
     else:
         return rv 
 
+"""
+Random Variable base class.  Defines a log density.
+"""
 # Abstract Base Class to represent a parameter that needs to be estimated
 class RandomVariable(abc.ABC):
 
@@ -112,9 +120,13 @@ class RandomVariable(abc.ABC):
         return
 
     @abc.abstractmethod
-    def sample(self):
+    def sample(self, apply_transform = True):
         return
 
+"""
+Defines an extension of RandomVariable that by 
+default defines a Lower Bound Transform.
+"""
 class PositiveRandomVariable(RandomVariable):
     
     def __init__(self, name, transform = None, observed = None):
@@ -137,6 +149,10 @@ class PositiveRandomVariable(RandomVariable):
             self.cvalue = cval
             self.jdet = pos_jdet * jdet
 
+"""
+Defines an extenstion of a RandomVariable that by
+default defines a set of bounds on a Random Variable
+"""
 class BoundedRandomVariable(RandomVariable):
 
     def __init__(self, name, a, b, transform = None, observed = None):
@@ -159,6 +175,10 @@ class BoundedRandomVariable(RandomVariable):
             self.cvalue = cval
             self.jdet = pos_jdet * jdet
 
+
+"""
+Collection of Pre-defined standard random variables.
+"""
 class Normal(RandomVariable):
 
     def __init__(self, name, mean, sd, transform = None, observed = None):
@@ -166,7 +186,7 @@ class Normal(RandomVariable):
         self.mean = mean
         self.sd = sd
         if observed is None:
-            self.value = self.sample()
+            self.value = self.sample(apply_transform = False)
 
     def check_value(self, v):
         return True
@@ -178,9 +198,16 @@ class Normal(RandomVariable):
         lpdf = np.sum(norm.logpdf(v, get_rv_value(self.mean), get_rv_value(self.sd)) + np.log(jd))
         return lpdf
 
-    def sample(self):
-        return self.apply_transform(np.random.normal(get_rv_value(self.mean, s = True), get_rv_value(self.sd, s = True)))
+    def sample(self, apply_transform = True):
+        z = np.random.normal(get_rv_value(self.mean, s = True), get_rv_value(self.sd, s = True))
+        if apply_transform:
+            return self.apply_transform(z)
+        else:
+            return z
 
+"""
+NOT WORKING YET
+"""
 class Uniform(BoundedRandomVariable):
 
     def __init__(self, name, lb, ub, transform = None, observed = None):
@@ -188,7 +215,7 @@ class Uniform(BoundedRandomVariable):
         self.lb = lb
         self.ub = ub
         if observed is None:
-            self.value = self.sample()
+            self.cvalue = self.sample(apply_transform = False)
 
     def check_value(self, v):
         return True
@@ -203,8 +230,12 @@ class Uniform(BoundedRandomVariable):
         lpdf = (-np.log(get_rv_value(self.ub) - get_rv_value(self.lb)) * sz) + np.log(jd)
         return lpdf
 
-    def sample(self):
-        return self.apply_transform(np.random.uniform(get_rv_value(self.lb, s = True), get_rv_value(self.ub, s = True)))
+    def sample(self, apply_transform = True):
+        z = np.random.uniform(get_rv_value(self.lb, s = True), get_rv_value(self.ub, s = True))
+        if apply_transform:
+            return self.apply_transform(z)
+        else:
+            return z
 
 class Gamma(PositiveRandomVariable):
     
@@ -213,7 +244,7 @@ class Gamma(PositiveRandomVariable):
         self.shape = shape
         self.scale = scale
         if observed is None:
-            self.value = self.sample()
+            self.cvalue = self.sample(apply_transform = False)
 
     def check_value(self, v):
         return True
@@ -225,8 +256,12 @@ class Gamma(PositiveRandomVariable):
         lpdf = np.sum(gamma.logpdf(v, get_rv_value(self.shape), get_rv_value(self.scale))) + np.log(jd)
         return lpdf
 
-    def sample(self):
-        return self.apply_transform(gamma.rvs(get_rv_value(self.shape, s = True), get_rv_value(self.scale, s = True)))
+    def sample(self, apply_transform = True):
+        z = gamma.rvs(get_rv_value(self.shape, s = True), get_rv_value(self.scale, s = True))
+        if apply_transform:
+            return self.apply_transform(z)
+        else:
+            return z
 
 class Beta(PositiveRandomVariable):
 
@@ -235,7 +270,7 @@ class Beta(PositiveRandomVariable):
         self.alpha = alpha
         self.beta = beta
         if observed is None:
-            self.value = self.sample()
+            self.cvalue = self.sample(apply_transform = False)
 
     def check_value(self, v):
         return True
@@ -244,12 +279,32 @@ class Beta(PositiveRandomVariable):
         if v is None:
             v = self.cvalue
             jd = self.jdet
-        lpdf = np.sum(beta.logpdf(v, get_rv_value(self.alpha, s = True), get_rv_value(self.beta, s = True)))
+        lpdf = np.sum(beta.logpdf(v, get_rv_value(self.alpha), get_rv_value(self.beta))) + np.log(jd)
         return lpdf
     
     def sample(self):
-        return self.apply_transform(beta.rvs(get_rv_value(self.alpha, s = True), get_rv_value(self.scale, s = True)))
+        z = beta.rvs(get_rv_value(self.alpha, s = True), get_rv_value(self.scale, s = True))
+        if apply_transform:
+            return self.apply_transform(z)
+        else:
+            return z
 
+class LogNormal(PositiveRandomVariable):
 
-        
+    def __init__(self, name, mu, sigma, transform = None, observed = None):
+        super().__init__(name, transform = transform, observed = observed)
+        self.mu = mu
+        self.sigma = sigma
 
+    def check_value(self, v):
+        return True
+
+    def log_density(self, v = None):
+        if v is None:
+            v = self.cvalue
+            jd = self.jdet
+        lpdf = np.sum(norm.logpdf(v, get_rv_value(self.mu), get_rv_value(self.sigma)) + np.log(jd))
+        return lpdf
+
+    def sample(self):
+        return self.apply_transform(np.random.normal(get_rv_value(self.mu, s = True), get_rv_value(self.sigma, s = True)))

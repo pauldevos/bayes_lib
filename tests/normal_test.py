@@ -14,10 +14,11 @@ with bl.Model() as m:
     #std = bl.rvs.Normal('std_prior', 0, 3, transform = bl.transform.LowerBoundRVTransform(0))
     y = bl.rvs.Normal('obs_model', mu, 1, observed = data)
 
-    chain, tchain = bl.sampling.metropolis_hastings(m, n_iter = 10000)
-    plt.hist(tchain[5000:,0])
+    chain, tchain = bl.sampling.metropolis_hastings(m, n_iter = 2000)
+    #plt.hist(chain[1000:,0], bins = 'auto')
     #plt.hist(tchain[50000:,1])
     #plt.scatter(tchain[50000:,0], tchain[50000:,1])
+    plt.plot(list(range(1000)), tchain[1000:,0])
     plt.show()
     
     #i_dist = lambda : [np.random.normal(2, 5)]

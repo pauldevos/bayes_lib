@@ -1,32 +1,42 @@
 import bayes_lib as bl
-from bayes_lib.apps.skm import *
+from bayes_lib.apps.markov_jump_process import *
 import numpy as np
-from scipy.stats import norm
-from scipy.integrate import odeint
 
 import matplotlib.pyplot as plt
 import seaborn as sns
 
-class BirthDeathProcess(StochasticKineticRandomVariable):
+np.random.seed(1)
+obs = None
+with bl.model.Model() as m:
+    br = bl.rvs.Normal('br', 0, np.log(1.1), transform = bl.transform.LowerBoundRVTransform(0))
+    ir = bl.rvs.Normal('ir', np.log(0.005), np.log(1.001), transform = bl.transform.LowerBoundRVTransform(0))
+    dr = 0.6
+    y0 = [50, 100]
+    obs_process = LotkaVolterra("lv", y0, br, ir, dr, 30)
+    obs = obs_process.sim(observation_times = np.linspace(0, 30, 10), s = True)
 
-    def __init__(self, name, y0, birth_rate, death_rate, end_T, times = None, observed = None):
-        super().__init__(name, y0, end_T, times = times, observed = observed)
-        self.birth_rate = birth_rate
-        self.death_rate = death_rate
-        self.reactions = np.array([[1],[-1]])
-
-    def gen_rate_fx(self, s = False):
-        br = bl.get_rv_value(self.birth_rate, s = s)
-        dr = bl.get_rv_value(self.death_rate, s = s)
-        def rate_fx(state):
-            return np.array([br * state[1], dr * state[1]])
-        return rate_fx
-
-    def sample(self):
-        y0 = bl.get_rv_value(self.y0)
-        return self.gillespie_simulate(y0, self.reactions, self.gen_rate_fx(s = True))
+obs[:,1:] = obs[:,1:] + np.random.normal(0, 10, size = obs[:,1:].shape)
+with bl.model.Model() as m:
+    br = bl.rvs.Normal('br', 0, np.log(1.1), transform = bl.transform.LowerBoundRVTransform(0))
+    ir = bl.rvs.Normal('ir', np.log(0.005), np.log(1.001), transform = bl.transform.LowerBoundRVTransform(0))
+    dr = 0.6
+    y0 = [50, 100]
+    obs_process = LotkaVolterra("lv", y0, br, ir, dr, 30, observed = obs)
+    chain, tchain = bl.sampling.metropolis_hastings(m, n_iter = 100, init_params = np.log(np.array([0.9509, 0.00499])))
+    bl.utils.save_chain(tchain, "tchain.csv")
+    bl.utils.save_chain(chain, "chain.csv")
 
 """
+with bl.model.Model() as m:
+    br = bl.rvs.Normal('br', 0, np.log(1.02), transform = bl.transform.LowerBoundRVTransform(0))
+    dr = 0.81
+    y0 = [bl.rvs.Normal('y0', np.log(100), np.log(1.2), transform = bl.transform.LowerBoundRVTransform(0))]
+    obs_process = BirthDeathProcess("birth_death", y0, br, dr, 3)
+    for i in range(100):
+        times, path = obs_process.sim(observation_times = [0.2,0.4,0.6,0.8,1,1.2,1.4,1.6], s = True)
+        plt.plot(times, path[:,0], '.-', alpha = 0.3)
+    plt.show()
+
 data = None
 with bl.model.SimulationModel() as m:
     br = 1.38175
@@ -38,7 +48,6 @@ with bl.model.SimulationModel() as m:
     np.savetxt("data.csv", data, delimiter = ',')
     plt.plot(data[:,0], data[:,1])
     plt.show()
-"""
 data = np.loadtxt("data.csv", delimiter = ',')
 with bl.model.Model() as m2:
     br = bl.rvs.Normal('br', 0, np.log(2), transform = bl.transform.LowerBoundRVTransform(0))
@@ -50,3 +59,4 @@ with bl.model.Model() as m2:
     bl.utils.save_chain(tchain, "chain.csv")
     plt.hist(tchain[500:,0])
     plt.show()
+"""
