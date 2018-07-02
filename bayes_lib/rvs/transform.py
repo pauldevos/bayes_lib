@@ -1,7 +1,7 @@
-import numpy as np
+import autograd.numpy as agnp
 import abc
 
-from .math.utils import logit, inv_logit
+from ..math.utils import logit, inv_logit
 
 """
 Abstract Class defining a Random Variable transformation.
@@ -35,13 +35,13 @@ class LowerBoundRVTransform(RVTransform):
         self.__lb = lb
 
     def transform(self, x):
-        return np.log(x - self.__lb)
+        return agnp.log(x - self.__lb)
 
     def inverse_transform(self, y):
-        return np.exp(y) + self.__lb
+        return agnp.exp(y) + self.__lb
 
     def transform_jacobian_det(self, y):
-        return np.exp(y)
+        return agnp.exp(y)
 
 class UpperBoundRVTransform(RVTransform):
 
@@ -49,13 +49,13 @@ class UpperBoundRVTransform(RVTransform):
         self.__ub = ub
 
     def transform(self, x):
-        return np.log(self.__ub - x)
+        return agnp.log(self.__ub - x)
     
     def inverse_transform(self, y):
-        return self.__ub - np.exp(y)
+        return self.__ub - agnp.exp(y)
 
     def transform_jacobian_det(self, y):
-        return np.exp(y)
+        return agnp.exp(y)
 
 class LowerUpperBoundRVTransform(RVTransform):
 

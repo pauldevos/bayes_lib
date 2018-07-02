@@ -13,7 +13,6 @@ class MarkovJumpProcess(RandomVariable):
         self.initial_state = initial_state
         self.params = params
         self.termination_time = termination_time
-        self.max_n_steps = max_n_steps
 
     def single_step(self, state, params, s = False):
         rates = params * self.compute_propensities(state)
@@ -28,7 +27,7 @@ class MarkovJumpProcess(RandomVariable):
         new_state = self.do_reaction(reaction_idx, state)
         return tau, new_state
 
-    def sim_delta(self, initial_state, params, dt, s = False):
+    def sim_delta(self, initial_state, params, dt, max_n_steps = np.inf, ret_steps = False, s = False):
         current_time = 0
         current_state = initial_state
         n_steps = 0
@@ -37,11 +36,17 @@ class MarkovJumpProcess(RandomVariable):
             current_time += tau
             current_state = new_state
             n_steps += 1
-            if n_steps > self.max_n_steps:
-                return None
-        return current_state
+            if n_steps > max_n_steps:
+                if ret_steps:
+                    return n_steps, None
+                else:
+                    return None
+        if ret_steps:
+            return n_steps, current_state
+        else:
+            return current_state
 
-    def sim(self, observation_times = None, termination_time = None, s = False):
+    def sim(self, observation_times = None, termination_time = None, max_n_steps = np.inf, s = False):
 
         if observation_times is None and termination_time is None:
             raise TypeError("Must specify either a set of observation times or a termination time")
@@ -51,13 +56,17 @@ class MarkovJumpProcess(RandomVariable):
         states = []
         
         # If simulating at specific times, step using deltas
+        n_steps = 0
         if observation_times is not None:
             times = np.hstack((np.array([0]),observation_times))
             states.append(initial_state)
             current_state = initial_state
             diffs = np.diff(times)
             for i in range(len(diffs)):
-                new_state = self.sim_delta(current_state, params, diffs[i], s = s)
+                ns, new_state = self.sim_delta(current_state, params, diffs[i], max_n_steps = max_n_steps, ret_steps = True, s = s)
+                n_steps += ns
+                if n_steps > max_n_steps:
+                    return None
                 if new_state is None:
                     return None
                 states.append(new_state)
@@ -66,7 +75,6 @@ class MarkovJumpProcess(RandomVariable):
             times = []
             current_state = initial_state
             current_time = 0
-            n_steps = 0
             while current_time < termination_time:
                 times.append(current_time)
                 states.append(current_state)
@@ -74,10 +82,9 @@ class MarkovJumpProcess(RandomVariable):
                 current_time += tau
                 current_state = new_state
                 n_steps += 1
-                if n_steps > self.max_n_steps:
+                if n_steps > max_n_steps:
                     return None
             times = np.array(times)
-        
         return np.c_[np.array(times), np.array(states)]
 
     @abc.abstractmethod
@@ -91,8 +98,8 @@ class MarkovJumpProcess(RandomVariable):
     def check_value(self, v):
         return True
 
-    def sample(self):
-        return self.sim(termination_time = self.termination_time, s = True)
+    def sample(self, max_n_steps = np.inf):
+        return self.sim(termination_time = self.termination_time, max_n_steps = max_n_steps, s = True)
 
     def obs_log_likelihood(self, v, r):
         return np.sum(norm.logpdf(v, r, 10))
@@ -113,7 +120,6 @@ class MarkovJumpProcess(RandomVariable):
         # Generate particles with shape n_smc, N_dims, N_time_points
         particles = np.zeros((n_smc, T.shape[0], N))
         params = get_rv_value(self.params)
-        print(params)
 
         # Sample initial positions for the particles
         for i in range(n_smc):
@@ -145,7 +151,7 @@ class MarkovJumpProcess(RandomVariable):
                 weights = n/d
 
             # Update likelihood estimate
-            llhood_est += np.mean(new_weights)
+            llhood_est += np.log(np.mean(n))
         return llhood_est
 
 class BirthDeathProcess(MarkovJumpProcess):
@@ -176,6 +182,23 @@ class LotkaVolterra(MarkovJumpProcess):
         
     def compute_propensities(self, state):
         return np.array([state[0], state[0] * state[1], state[1]])
+
+    def do_reaction(self, reaction_idx, state):
+        return state + self.reactions[reaction_idx, :]
+
+class LotkaVolterra2(MarkovJumpProcess):
+
+    def __init__(self, name, initial_state, ir1, br, dr, ir2, termination_time, max_n_steps = np.inf, observed = None):
+        self.ir1 = ir1
+        self.br = br
+        self.dr = dr
+        self.ir2 = ir2
+        params = [self.ir1, self.br, self.dr, self.ir2]
+        super().__init__(name, initial_state, params, termination_time, max_n_steps = max_n_steps, observed = observed)
+        self.reactions = np.array([[1,0],[-1,0],[0,1],[0,-1]])
+
+    def compute_propensities(self, state):
+        return np.array([state[0]*state[1], state[0], state[1], state[0]*state[1]])
 
     def do_reaction(self, reaction_idx, state):
         return state + self.reactions[reaction_idx, :]

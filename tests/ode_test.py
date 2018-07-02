@@ -59,12 +59,13 @@ def dX_dt(X, t):
 data = odeint(dX_dt, y0, ts) + np.random.normal(0, 1, size = (15,2))
 
 with bl.model.Model() as m:
-    a = bl.rvs.Normal('a', 0, 2, transform = bl.transform.LowerBoundRVTransform(0))
-    b = bl.rvs.Normal('b', 0, 2, transform = bl.transform.LowerBoundRVTransform(0))
-    c = bl.rvs.Normal('c', 1, 2, transform = bl.transform.LowerBoundRVTransform(0))
-    d = bl.rvs.Normal('d', 0, 2, transform = bl.transform.LowerBoundRVTransform(0))
+    a = bl.rvs.Normal('a', 0, 2, transform = bl.rvs.transform.LowerBoundRVTransform(0))
+    b = bl.rvs.Normal('b', 0, 2, transform = bl.rvs.transform.LowerBoundRVTransform(0))
+    c = bl.rvs.Normal('c', 1, 2, transform = bl.rvs.transform.LowerBoundRVTransform(0))
+    d = bl.rvs.Normal('d', 0, 2, transform = bl.rvs.transform.LowerBoundRVTransform(0))
     y = LKRV('LK', a, b, c, d, ts, y0, observed = data)
-
-    chain, tchain = bl.sampling.metropolis_hastings(m, n_iter = 5000)
+    
+    sampler = bl.inference.samplers.A_MVNMetropolisHastings(m)
+    chain, tchain = sampler.run(n_iters = 5000)
     plt.hist(tchain[1000:,1])
     plt.show()

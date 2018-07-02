@@ -1,7 +1,14 @@
-import numpy as np
+import autograd.numpy as agnp
+import autograd
 import threading
 import collections
 
+class ModelNotDifferentiableException(Exception):
+   pass 
+
+class DuplicateParameterNameException(Exception):
+    pass
+    
 """
 Defines a Context object for a Model
 """
@@ -39,27 +46,46 @@ the parameters
 """
 class Model(Context):
 
+    _gld = None
+    is_differentiable = True 
+
     def __init__(self, name = None):
         self.name = name
+        self.param_lkup = {}
         self.params = []
+        self.observed_params = []
+        self.unobserved_params = []
+        # Number of unobserved params
+        self.n_params = 0
 
     def append_param(self, param):
-        self.params.append(param)
+        if param.name in self.param_lkup:
+            raise DuplicateParameterNameException
+        else:
+            self.param_lkup[param.name] = param
 
+        self.params.append(param)
+        if not param.is_observed:
+            self.unobserved_params.append(param)
+            self.n_params += 1
+        else:
+            self.observed_params.append(param)
+        
+        if not param.is_differentiable:
+            self.is_differentiable = False
+        
     def get_param_vector(self):
         param_vec = []
-        for i in range(len(self.params)):
-            if not self.params[i].is_observed:
-                param_vec.append(self.params[i].value)
-        return np.array(param_vec)
+        for i in range(len(self.unobserved_params)):
+            param_vec.append(self.unobserved_params[i].value)
+        return agnp.array(param_vec)
 
     def set_param_vector(self, p_vals):
-        for i in range(len(self.params)):
-            if not self.params[i].is_observed:
-                self.params[i].value = p_vals[i]
+        for i in range(len(self.unobserved_params)):
+            self.unobserved_params[i].value = p_vals[i]
     
     def get_constrained_params(self):
-        param_vec = [p.cvalue for p in self.params if not p.is_observed]
+        param_vec = agnp.array([p.cvalue for p in self.unobserved_params])
         return param_vec
 
     def log_density(self):
@@ -67,3 +93,30 @@ class Model(Context):
         for i in range(len(self.params)):
             logp += self.params[i].log_density()
         return logp
+
+    def log_likelihood(self):
+        logp = 0
+        for i in range(len(self.observed_params)):
+            logp += self.observed_params[i].log_density()
+        return logp
+
+    def log_density_p(self, param_vec):
+        self.set_param_vector(param_vec)
+        return self.log_density()
+
+    def compile_gradient_(self):
+        if not self.is_differentiable:
+            raise ModelNotDifferentiableException
+        self._gld = autograd.grad(self.log_density_p)
+
+    def grad_log_density(self):
+        if self._gld is None:
+            self.compile_gradient_()
+        return self._gld(self.get_param_vector())
+
+    def grad_log_density_p(self,param_vec):
+        if self._gld is None:
+            self.compile_gradient_()
+        return self._gld(param_vec)
+
+        

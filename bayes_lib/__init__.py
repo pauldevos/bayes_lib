@@ -1,8 +1,7 @@
 from .model import *
-from .rvs import get_rv_value
+from .rvs.core import get_rv_value
 
-from . import rvs
-from . import sampling
-from . import transform
 from . import utils
+from . import inference
+from . import math
 
