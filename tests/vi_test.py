@@ -7,20 +7,26 @@ import matplotlib.pyplot as plt
 from scipy.stats import norm
 import seaborn as sns
 
-data = np.random.normal(3, 4, size = 100)
+data = np.random.normal(3, 0.2, size = 100)
 
 with bl.Model() as m:
     mu = bl.rvs.Normal('mu_prior', 0, 1)
     std = bl.rvs.InverseGamma('std_prior', 1, 1)
     y = bl.rvs.Normal('obs_model', mu, std, observed = data)
     # VI Test
-    inf_alg = bl.inference.variational.BlackBoxVariationalInference(m, init = np.array([3, np.log(4), 0, 0]))
+    inf_alg = bl.inference.variational.BlackBoxVariationalInference(m)#, variational_dist = bl.inference.variational.distributions.FullRank())
     res, v_post = inf_alg.run()
+    variational_samples = v_post.sample(1000)
+    transformed_variational_samples = np.array([m.transform_param_vector(variational_samples[i,:]) for i in range(1000)])
+    plt.hist(variational_samples[:,1], label = 'real_stds')
+    plt.hist(transformed_variational_samples[:,1], label = 'transformed_stds')
+    plt.legend()
+    plt.show()
     
-    inf_alg2 = bl.inference.samplers.A_MVNMetropolisHastings(m, scale = 0.1)
-    samples, tsamples = inf_alg2.run(n_iters = 5000)
-    print("Variational:", np.array([v_post.v_means[0], np.exp(v_post.v_means[1])]))
-    print("MCMC:", np.mean(tsamples[2500:,:], axis = 0))
+    #inf_alg2 = bl.inference.samplers.A_MVNMetropolisHastings(m, scale = 0.1)
+    #samples, tsamples = inf_alg2.run(n_iters = 5000)
+    #print("Variational:", np.array([v_post.v_means[0], np.exp(v_post.v_means[1])]))
+    #print("MCMC:", np.mean(tsamples[2500:,:], axis = 0))
     #sns.kdeplot(tsamples[2500:,0], label = 'mu')
     #sns.kdeplot(tsamples[2500:,1], label = 'std')
     #plt.show()

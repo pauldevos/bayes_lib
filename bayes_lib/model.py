@@ -83,6 +83,12 @@ class Model(Context):
     def set_param_vector(self, p_vals):
         for i in range(len(self.unobserved_params)):
             self.unobserved_params[i].value = p_vals[i]
+
+    def transform_param_vector(self, p_vals):
+        param_vec = []
+        for i in range(len(self.unobserved_params)):
+            param_vec.append(self.unobserved_params[i].apply_transform(p_vals[i]))
+        return agnp.array(param_vec)
     
     def get_constrained_params(self):
         param_vec = agnp.array([p.cvalue for p in self.unobserved_params])

@@ -28,7 +28,7 @@ with bl.model.Model() as m:
     obs_process = LotkaVolterra2("lv", y0, ir1, br, dr, ir2, 30, observed = obs)
     
     print("Started sampling!")
-    sampler = bl.inference.samplers.M_MVNMetropolisHastingsSpecial(m, scale = 1e-4)
+    sampler = bl.inference.samplers.M_MVNMetropolisHastingsSpecial(m, scale = 1e-5)
     chain, tchain = sampler.run(n_iters = 2000, init_params = np.log([0.02,0.3,0.85,0.01]))
     bl.utils.save_chain(tchain, "results/tchain.csv")
     bl.utils.save_chain(chain, "results/chain.csv")
