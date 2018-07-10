@@ -19,7 +19,7 @@ class OptimizationResult(object):
 class Optimizer(object):
 
     @abc.abstractmethod
-    def run(self, objective_function):
+    def run(self, objective_function, iter_func = None, iter_interval = 1):
         return
 
 class GradientDescent(Optimizer):
@@ -27,7 +27,7 @@ class GradientDescent(Optimizer):
     def __init__(self, learning_rate = 0.1):
         self.learning_rate = learning_rate
 
-    def run(self, objective_fx, grad_fx, init, convergence = 1e-6, max_iters = 1e4):
+    def run(self, objective_fx, grad_fx, init, iter_func = None, iter_interval = 1, convergence = 1e-6, max_iters = 1e4):
         """Solves a minimization problem using the specified objective function, gradient function, and initialization.
 
         Args:
@@ -47,13 +47,13 @@ class GradientDescent(Optimizer):
         converged = False
 
         while iteration < max_iters and not converged:
+            if iter_func is not None and iteration % iter_interval == 0:
+                iter_func(iteration, current_pos, current_obj_value)
             g = grad_fx(current_pos)
             new_pos = current_pos - self.learning_rate * g
             new_obj_value = objective_fx(new_pos)
             iteration += 1
             #print("Grad:",g)
-            print("New Pos:",new_pos)
-            print("New Obj:",new_obj_value)
             if np.abs(new_obj_value - current_obj_value) < convergence:
                 converged = True
             if np.sum(np.abs(new_pos - current_pos)) < convergence:
