@@ -33,13 +33,13 @@ class BlackBoxVariationalInference(VariationalInference):
         def mc_elbo(v_pars, n_samples = n_mc_samples):
             self.v_dist.variational_params = v_pars
             v_samples = self.v_dist.sample(n_samples)
-            logp_model = [self.model.log_density_p(v_samples[i,:]) for i in range(n_samples)]
-            return np.mean(logp_model) + self.v_dist.entropy(v_pars, v_samples)
+            logp_model = agnp.mean(self.model.log_density_p(v_samples))
+            return logp_model + self.v_dist.entropy(v_pars, v_samples)
 
         def mc_grad_elbo(v_pars, n_samples = n_grad_samples):
             self.v_dist.variational_params = v_pars
             v_samples = self.v_dist.sample(n_samples)
-            logp_model = [self.model.log_density_p(v_samples[i,:]) for i in range(n_samples)]
+            logp_model = self.model.log_density_p(v_samples)
             logq_model = self.v_dist.log_density(v_samples)
             grad_values = self.v_dist.grad_log_density(v_samples)
             return np.mean(grad_values * (logp_model - logq_model)[:,np.newaxis], axis = 0)
@@ -62,10 +62,7 @@ class ReparameterizedVariationalInference(VariationalInference):
 
         def mc_elbo(variational_params, n_samples = n_mc_samples):
             v_samples = self.v_dist.sample_p(variational_params, n_samples)
-            logp_model = 0
-            for i in range(n_samples):
-                logp_model += self.model.log_density_p(v_samples[i,:])
-            logp_model = logp_model/n_samples
+            logp_model = agnp.mean(self.model.log_density_p(v_samples))
             return logp_model + self.v_dist.entropy(variational_params, v_samples)
 
         grad_mc_elbo = autograd.grad(mc_elbo)

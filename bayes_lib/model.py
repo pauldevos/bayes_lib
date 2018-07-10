@@ -127,11 +127,13 @@ class Model(Context):
         return logp
 
     def log_density_p(self, param_vec):
+        if len(param_vec.shape) < 2:
+            param_vec = param_vec.reshape(1,-1)
         lps = []
         for i in range(param_vec.shape[0]):
             self.set_param_vector(param_vec[i,:])
             lps.append(self.log_density())
-        return self.log_density()
+        return agnp.array(lps)
 
     def compile_gradient_(self):
         if not self.is_differentiable:
