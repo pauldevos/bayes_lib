@@ -3,18 +3,40 @@ import numpy as np
 from scipy.stats import norm
 from scipy.integrate import odeint
 
+import time
+
 import matplotlib.pyplot as plt
 import seaborn as sns
 import autograd
+import autograd.numpy as agnp
+import autograd.scipy as agsp
 
 data = np.random.normal(3, 1, size = 100)
+
+def special_log_density(x):
+    mu = x[:,0]
+    lps = []
+    for i in range(mu.shape[0]):
+        lps.append(agnp.sum(agsp.stats.norm.logpdf(data, mu[i], 1), axis = 0))
+    return agnp.array(lps)
+
+grad_special_log_density = autograd.elementwise_grad(special_log_density)
+
+params = np.random.normal(3, 1, size = 100000).reshape(-1,1)
 
 with bl.Model() as m:
     mu = bl.rvs.Normal('mu_prior', 0, 1)
     #mu = bl.rvs.Uniform('mu_prior', 1, 4)
     #std = bl.rvs.Normal('std_prior', 0, 3, transform = bl.transform.LowerBoundRVTransform(0))
     y = bl.rvs.Normal('obs_model', mu, 1, observed = data)
-    sampler = bl.inference.samplers.M_MVNMetropolisHastings(m)
+    st = time.time()
+    g = grad_special_log_density(params)
+    print("All at once %d" % (time.time() - st))
+    m.grad_log_density_p(params[:4,:])
+    st = time.time()
+    m.grad_log_density_p(params)
+    print("One at a time %d" % (time.time() - st))
+    #sampler = bl.inference.samplers.M_MVNMetropolisHastings(m)
     
     """
     sampler = bl.sampling.M_MVNMetropolisHastings(m)

@@ -59,6 +59,7 @@ class MetropolisHastingsSpecial(MCMCSampler):
         m = copy.deepcopy(self.model)
         chain = []
         tchain = []
+        n_accept = 0
 
         if init_params is not None:
             m.set_param_vector(init_params)
@@ -77,7 +78,7 @@ class MetropolisHastingsSpecial(MCMCSampler):
             print("New LPDF %f" % (new_lpdf))
             print("Accept Probability %f" % (np.exp(new_lpdf + forward_log_density - lpdf - reverse_log_density)))
             if new_lpdf + forward_log_density > -np.inf and np.log(np.random.rand()) < np.minimum(0, (new_lpdf + forward_log_density) - (lpdf + reverse_log_density)):
-                print("Accept")
+                n_accept += 1
                 chain.append(new_pos)
                 cpos = m.get_constrained_params()
                 pos = new_pos
@@ -85,6 +86,7 @@ class MetropolisHastingsSpecial(MCMCSampler):
             else:
                 chain.append(pos)
             tchain.append(cpos)
+        print("Acceptance rate: %f%%" % ((100 * n_accept)/n_iters))
         return np.array(chain), np.array(tchain)
     
     @abc.abstractmethod

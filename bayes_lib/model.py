@@ -73,6 +73,26 @@ class Model(Context):
         
         if not param.is_differentiable:
             self.is_differentiable = False
+
+    def sample_param_vector(self, n_samples, apply_transform = True):
+        samples = []
+        for _ in range(n_samples):
+            param_vec = []
+            for i in range(len(self.unobserved_params)):
+                param_vec.append(self.unobserved_params[i].sample(apply_transform = apply_transform))
+            samples.append(param_vec)
+        return agnp.array(samples)
+
+    def sample_data(self, n_samples):
+        param_samples = self.sample_param_vector(n_samples, apply_transform = False)
+        full_samples = []
+        for i in range(n_samples):
+            self.set_param_vector(param_samples[i,:])
+            observed = []
+            for j in range(len(self.observed_params)):
+                observed.append(self.observed_params[j].sample())
+            full_samples.append((param_samples[i,:],observed))
+        return full_samples
         
     def get_param_vector(self):
         param_vec = []
@@ -107,7 +127,10 @@ class Model(Context):
         return logp
 
     def log_density_p(self, param_vec):
-        self.set_param_vector(param_vec)
+        lps = []
+        for i in range(param_vec.shape[0]):
+            self.set_param_vector(param_vec[i,:])
+            lps.append(self.log_density())
         return self.log_density()
 
     def compile_gradient_(self):
@@ -122,6 +145,7 @@ class Model(Context):
 
     def grad_log_density_p(self,param_vec):
         if self._gld is None:
+            print("Compiling")
             self.compile_gradient_()
         return self._gld(param_vec)
 

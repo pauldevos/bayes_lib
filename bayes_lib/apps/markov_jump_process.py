@@ -2,7 +2,7 @@ import numpy as np
 import abc
 from ..model import Model
 from ..rvs import RandomVariable, get_rv_value
-from scipy.stats import norm
+from scipy.stats import norm, lognorm
 import pathos.pools as pp
 import random
 
@@ -105,7 +105,7 @@ class MarkovJumpProcess(RandomVariable):
         return np.sum(norm.logpdf(v, r, 10))
     
     # Computes an approximate log density using PMCMC
-    def log_density(self, n_smc = 50, v = None):
+    def log_density(self, n_smc = 100, v = None):
         p = pp.ProcessPool()
         if v is None:
             v = self.cvalue
