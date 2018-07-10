@@ -6,22 +6,35 @@ import autograd.scipy as agsp
 import matplotlib.pyplot as plt
 from scipy.stats import norm
 import seaborn as sns
+import time
 
 data = np.random.normal(3, 0.2, size = 100)
 
 with bl.Model() as m:
     mu = bl.rvs.Normal('mu_prior', 0, 1)
-    std = bl.rvs.InverseGamma('std_prior', 1, 1)
+    std = bl.rvs.Normal('std_prior', 0, 1, transform = bl.rvs.transform.LowerBoundRVTransform(0.))#bl.rvs.InverseGamma('std_prior', 1, 1)
     y = bl.rvs.Normal('obs_model', mu, std, observed = data)
     # VI Test
-    inf_alg = bl.inference.variational.BlackBoxVariationalInference(m)#, variational_dist = bl.inference.variational.distributions.FullRank())
-    res, v_post = inf_alg.run()
-    variational_samples = v_post.sample(1000)
-    transformed_variational_samples = np.array([m.transform_param_vector(variational_samples[i,:]) for i in range(1000)])
-    plt.hist(variational_samples[:,1], label = 'real_stds')
-    plt.hist(transformed_variational_samples[:,1], label = 'transformed_stds')
-    plt.legend()
-    plt.show()
+    inf_alg_bbvi = bl.inference.variational.BlackBoxVariationalInference(m, variational_dist = bl.inference.variational.distributions.FullRank())
+    #inf_alg_svi = bl.inference.variational.ReparameterizedVariationalInference(m, variational_dist = bl.inference.variational.distributions.FullRank())
+    
+    bbvi_st = time.time()
+    res_bbvi, v_post_bbvi = inf_alg_bbvi.run()
+    bbvi_et = time.time()
+    
+    #svi_st = time.time()
+    #res_svi, v_post_svi = inf_alg_svi.run()
+    #svi_et = time.time()
+    
+    #print("BBVI Runtime: %d" % (bbvi_et - bbvi_st))
+    #print(res_bbvi)
+    print("SVI Runtime: %d" % (svi_et - svi_st))
+    print(res_svi)
+    #transformed_variational_samples = np.array([m.transform_param_vector(variational_samples[i,:]) for i in range(1000)])
+    #plt.hist(variational_samples[:,1], label = 'real_stds')
+    #plt.hist(transformed_variational_samples[:,1], label = 'transformed_stds')
+    #plt.legend()
+    #plt.show()
     
     #inf_alg2 = bl.inference.samplers.A_MVNMetropolisHastings(m, scale = 0.1)
     #samples, tsamples = inf_alg2.run(n_iters = 5000)
