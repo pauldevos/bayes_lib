@@ -16,6 +16,9 @@ def relu(y):
 def linear(y):
     return y
 
+def exp(y):
+    return agnp.exp(y)
+
 # Aliases
 sigmoid = inv_logit
 grad_sigmoid = grad_inv_logit
