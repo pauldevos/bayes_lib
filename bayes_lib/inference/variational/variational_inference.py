@@ -58,7 +58,7 @@ class ReparameterizedVariationalInference(VariationalInference):
         self.v_dist = variational_dist
         self.v_dist.initialize(self.model.n_params, init = init)
 
-    def run(self, n_mc_samples = 200, n_grad_samples = 200, optimizer = GradientDescent(learning_rate = 1e-4), max_opt_iters = 1000, convergence = 1e-3):
+    def run(self, n_mc_samples = 10, n_grad_samples = 10, optimizer = GradientDescent(learning_rate = 1e-4), iter_func = None, iter_interval = None, max_opt_iters = 1000, convergence = 1e-3):
 
         def mc_elbo(variational_params, n_samples = n_mc_samples):
             v_samples = self.v_dist.sample_p(variational_params, n_samples)
@@ -67,7 +67,7 @@ class ReparameterizedVariationalInference(VariationalInference):
 
         grad_mc_elbo = autograd.grad(mc_elbo)
 
-        res = optimizer.run(lambda x: -mc_elbo(x), lambda x: -grad_mc_elbo(x), self.v_dist.variational_params, max_iters = max_opt_iters, convergence = convergence)
+        res = optimizer.run(lambda x: -mc_elbo(x), lambda x: -grad_mc_elbo(x), self.v_dist.variational_params, iter_func = iter_func, iter_interval = iter_interval, max_iters = max_opt_iters, convergence = convergence)
         self.v_dist.variational_params = res.position
         return res, self.v_dist
 

@@ -19,6 +19,8 @@ def get_rv_value(rv, s = False):
             return rv.cvalue
     elif isinstance(rv, collections.Iterable):
         return agnp.array([get_rv_value(v, s = s) for v in rv])
+    elif isinstance(rv, RandomVariableOperation):
+        return rv.compute()
     else:
         return rv 
 
@@ -165,3 +167,14 @@ class BoundedRandomVariable(DefaultConstrainedRandomVariable):
         if isinstance(transform, LowerUpperBoundRVTransform):
             transform = None
         super().__init__(name, transform = transform, observed = observed)
+
+
+class RandomVariableOperation(object):
+
+    def __init__(self, name, inputs):
+        self.name = name
+        self.inputs = inputs
+
+    @abc.abstractmethod
+    def compute(self):
+        return
