@@ -1,5 +1,6 @@
+import bayes_lib as bl
 from bayes_lib.math.utils import *
-from bayes_lib.rvs.core import *
+from ..core import *
 
 import numpy as np
 import autograd.numpy as agnp
@@ -17,21 +18,9 @@ class Layer(object):
         self.n = output_dim
 
     @abc.abstractmethod
-    def forward(self, inputs):
+    def forward(self, weights, inputs):
         return
     
-    @abc.abstractmethod
-    def forward_p(self, weights, inputs):
-        return
-    
-    @abc.abstractmethod
-    def get_params(self):
-        raise NotImplementedException("Must define method to get params")
-    
-    @abc.abstractmethod
-    def set_params(self, params):
-        raise NotImplementedException("Must define method to set params")
-
 class FCLayer(Layer):
     
     def __init__(self, input_dim, output_dim, nonlinearity = linear):
@@ -40,27 +29,18 @@ class FCLayer(Layer):
         self.num_weights = (self.m+1)*self.n
         
         # Xavier Initialization
-        self.params = np.random.normal(0, np.sqrt(2/(self.m + self.n)), size = (1,self.num_weights))
+        # self.params = np.random.normal(0, np.sqrt(2/(self.m + self.n)), size = (1,self.num_weights))
         
     def unpack_params(self,weights):
         num_weight_sets = len(weights)
         return weights[:, :self.m*self.n].reshape((num_weight_sets, self.m, self.n)),\
                weights[:, self.m*self.n:].reshape((num_weight_sets, 1, self.n))
 
-    def forward(self, inputs):
-        return self.forward_p(self.params, inputs)
-
-    def forward_p(self, weights, inputs):
+    def forward(self, weights, inputs):
         if len(inputs.shape) > 3:
             inputs = inputs.reshape((inputs.shape[0],inputs.shape[1],-1))
         W, b = self.unpack_params(weights)
         return self.nonlinearity(agnp.einsum('mnd,mdo->mno', inputs, W) + b)
-
-    def get_params(self):
-        return self.params
-
-    def set_params(self, params):
-        self.params = params
 
 class ConvLayer(Layer):
 
@@ -94,10 +74,7 @@ class ConvLayer(Layer):
         return weights[:, :self.num_filter_weights].reshape((num_weight_sets,) + self.filter_weights_shape),\
                weights[:,self.num_filter_weights:].reshape((num_weight_sets,) + self.bias_shape)
 
-    def forward(self, inputs):
-        return self.forward_p(self.params, inputs)
-
-    def forward_p(self, weights, inputs):
+    def forward(self, weights, inputs):
         # Input dims are [num_weight_sets, 
         w,b = self.unpack_params(weights)
         convs = []
@@ -107,12 +84,6 @@ class ConvLayer(Layer):
             convs.append(self.nonlinearity(conv))
         z = agnp.array(convs)
         return z
-
-    def get_params(self):
-        return self.params
-
-    def set_params(self, params):
-        self.params = params
 
 class RNNLayer(Layer):
 
@@ -145,10 +116,7 @@ class RNNLayer(Layer):
         W_output, b_output = self.unpack_output_params(weights)
         return self.output_nonlinearity(agnp.einsum('pdh,pnd->pnh', W_output, hidden) + b_output)
 
-    def foward(self, inputs):
-        return self.foward_p(self.params, inputs)
-
-    def forward_p(self, weights, inputs):
+    def forward(self, weights, inputs):
         n_param_sets = inputs.shape[0]
         sequence_length = inputs.shape[1]
         n_sequences = inputs.shape[2]
@@ -162,12 +130,6 @@ class RNNLayer(Layer):
         
         out = agnp.array(outputs).reshape((inputs.shape[0],inputs.shape[1] + 1, inputs.shape[2], inputs.shape[3]))
         return out
-
-    def get_params(self):
-        return self.params
-
-    def set_params(self, params):
-        self.params = params
 
 class LSTMLayer(Layer):
 
@@ -227,10 +189,7 @@ class LSTMLayer(Layer):
         W_output, b_output = self.unpack_output_params(weights)
         return self.output_nonlinearity(agnp.einsum('pdh,pnd->pnh', W_output, hidden) + b_output)
 
-    def foward(self, inputs):
-        return self.forward_p(self.params, inputs)
-
-    def forward_p(self, weights, inputs):
+    def forward(self, weights, inputs):
         n_param_sets = inputs.shape[0]
         sequence_length = inputs.shape[1]
         n_sequences = inputs.shape[2]
@@ -247,18 +206,15 @@ class LSTMLayer(Layer):
         out = agnp.array(outputs).reshape((inputs.shape[0],inputs.shape[1] + 1, inputs.shape[2], inputs.shape[3]))
         return out
 
-    def get_params(self):
-        return self.params
+class BaseNeuralNetwork(bl.ops.Operation):
 
-    def set_params(self, params):
-        self.params = params
+    num_weights = 0
+    layers = []
 
-class BaseNeuralNetwork(object):
-
-    def __init__(self):
-
-        self.num_weights = 0
-        self.layers = []
+    def __init__(self, name, weights, inputs):
+        self.weights = weights
+        self.inputs = inputs
+        super().__init__(name, [weights,inputs])
     
     def unpack_layers(self, weights):
         num_weight_sets = len(weights)
@@ -266,36 +222,28 @@ class BaseNeuralNetwork(object):
             yield weights[:, :layer.num_weights]
             weights = weights[:, layer.num_weights:]
 
-    def predict_p(self, weights, inputs):
-        t = len(weights)
-        inputs = agnp.expand_dims(inputs, 0).repeat(t,0)
-        for i, w in enumerate(self.unpack_layers(weights)):
-            inputs = self.layers[i].forward_p(w, inputs)
-        return inputs
-
-    def predict(self, inputs):
+    def compute(self, weights, inputs):
+        weights = weights.reshape(1,-1)
+        #t = len(weights)
         inputs = agnp.expand_dims(inputs, 0).repeat(1,0)
-        for i in range(len(self.layers)):
-            inputs = self.layers[i].forward(inputs)
+        for i, w in enumerate(self.unpack_layers(weights)):
+            inputs = self.layers[i].forward(w, inputs)
         return inputs
 
     def add_layer(self, layer):
         self.layers.append(layer)
         self.num_weights += layer.num_weights
 
-    def get_params(self):
-        return np.hstack([layer.get_params() for layer in self.layers])
-
-    def set_params(self, weights):
-        for i, w in enumerate(self.unpack_layers(weights)):
-            self.layers[i].set_params(w[0:1,:])
-
 class DenseNeuralNetwork(BaseNeuralNetwork):
 
-    def  __init__(self, layer_dims, nonlinearity = sigmoid, last_layer_nonlinearity = linear):
-        super().__init__()
+    is_differentiable = True
+
+    def  __init__(self, name, inputs, layer_dims, nonlinearity = sigmoid, last_layer_nonlinearity = linear):
         shapes = list(zip(layer_dims[:-1], layer_dims[1:]))
         for m, n in shapes[:len(shapes)-1]:
             self.add_layer(FCLayer(m, n, nonlinearity))
-
         self.add_layer(FCLayer(shapes[-1][0], shapes[-1][1], nonlinearity = last_layer_nonlinearity))
+
+        weights = bl.rvs.Normal('rv_%s' % (name), 0, 1, dimensions = agnp.array(self.num_weights))
+        #weights = bl.rvs.Variable('rv_%s' % (name), dimensions = agnp.array(self.num_weights))
+        super().__init__(name, weights, inputs)

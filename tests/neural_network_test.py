@@ -1,55 +1,37 @@
 import bayes_lib as bl
-import numpy as np
-import autograd.numpy as agnp
 import autograd
+import autograd.numpy as agnp
+import autograd.scipy as agsp
 import matplotlib.pyplot as plt
-import matplotlib.animation
-import pickle
 
-z = np.loadtxt("results/synth_likelihood.csv", delimiter = ',')
-x = z[:,:4]
-y = z[:,4]
-y = bl.math.utils.exp((y - np.mean(y))/np.std(y))
+x_true = agnp.linspace(-6, 6, 1000).reshape(1000,1)
+y_true = agnp.sin(x_true)
 
-nn = bl.ml.neural_network.DenseNeuralNetwork([4,3,1], last_layer_nonlinearity = bl.math.utils.exp)
-optimizer = bl.math.optimizers.GradientDescent(learning_rate = 0.01)
+with bl.Model() as m:
+    X = bl.Placeholder('X', dimensions = agnp.array([1000,1]))
+    network = bl.ml.neural_network.DenseNeuralNetwork('NN', X, layer_dims = [1,5,1], nonlinearity = bl.math.utils.sigmoid)
+    y = bl.rvs.Normal('obs', network, 1, observed = y_true)
 
-def loss(params):
-    return agnp.mean(agnp.square(y - nn.predict_p(params, x)))
+    optimizer = bl.math.optimizers.GradientDescent(learning_rate = 1e-6)
+   
+    init = agnp.random.normal(0, 3, size = m.n_params)
+    plt.ion()
+    ax = plt.gca()
+    ax.set_autoscale_on(True)
+    line_true, = ax.plot(x_true, y_true)
+    line, = ax.plot(x_true,network.compute(init, x_true)[0,:,:])
+    
+    def iter_func(t, p, o):
+        print(t)
+        print("Objective Value: %f" % o)
+        line.set_ydata(network.compute(p, x_true)[0,:,:])
+        ax.relim()
+        ax.autoscale_view(True, True, True)
+        plt.draw()
+        plt.pause(0.1)
 
-grad_loss = autograd.elementwise_grad(loss)
-plt.ion()
-fig = plt.figure()
-ax = fig.add_subplot(111)
-ax.set_xlim(0,300)
-ax.set_ylim(0,500000)
-"""
-line1, = ax.plot(x, y, 'b-')
-line2, = ax.plot(x, nn.predict_p(nn.get_params(), x)[0,:,:], 'r-')
-def update_plot(t, current_pos, current_obj_value):
-    line2.set_ydata(nn.predict_p(current_pos, x)[0,:,:])
-    fig.canvas.draw()
-    plt.pause(0.05)
-    print("Current Objective Value: %f" % current_obj_value) 
-"""
-ts = []
-obj_vals = []
-ax.plot(ts, obj_vals)
-#sc = ax.scatter(ts, obj_vals)
-def update_plot(t, current_pos, current_obj_value):
-    #ax.clear()
-    #ts.append(t)
-    #obj_vals.append(current_obj_value)
-    #sc.set_offsets(np.c_[ts,obj_vals])
-    #ax.plot(ts, obj_vals)
-    #fig.canvas.draw()
-    #plt.pause(0.05)
-    print("Current Objective Value: %f" % current_obj_value)
-
-res = optimizer.run(loss, grad_loss, init = nn.get_params(), iter_func = update_plot, iter_interval = 100, convergence = 1e-10)
-print(nn.predict(x))
-nn.set_params(res.position)
-print(nn.predict(x))
-pickle.dump(nn, open('results/trained_lhood.pkl', 'wb'))
+    res = optimizer.run(lambda x: -m.log_density(x, feed_dict = {X: x_true}), lambda x: -m.grad_log_density(x, feed_dict = {X: x_true}), init, iter_func = iter_func, iter_interval = 5)
 
 
+
+    

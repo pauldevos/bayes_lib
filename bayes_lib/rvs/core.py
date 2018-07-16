@@ -1,54 +1,52 @@
-import autograd.numpy as agnp
-import autograd.scipy as agsp
-import numpy as np
 import abc
-import collections
+from ..core import Node
+from .transform import *
+from ..model import *
 
-from ..model import Model
-from .transform import LowerBoundRVTransform, LowerUpperBoundRVTransform
+class RandomVariable(Node):
 
-"""
-Option like method which returns a sampled value from a random variable
-or the passed in value if it is not a random variable
-"""
-def get_rv_value(rv, s = False):
-    if isinstance(rv, RandomVariable):
-        if s:
-            return rv.sample(apply_transform = True)
-        else:
-            return rv.cvalue
-    elif isinstance(rv, collections.Iterable):
-        return agnp.array([get_rv_value(v, s = s) for v in rv])
-    elif isinstance(rv, RandomVariableOperation):
-        return rv.compute()
-    else:
-        return rv 
-
-"""
-Random Variable base class.  Defines a log density.
-"""
-# Abstract Base Class to represent a parameter that needs to be estimated
-class RandomVariable(abc.ABC):
-
-    # All values are R and unconstrained
-    __value = None
-    __cvalue = None
-    __jdet = 1.
-    __is_observed = False
     is_differentiable = False
-    
-    def __init__(self, name, transform = None, observed = None):
-        self.name = name
-        self.transform = transform
+    transform = None
+    #input_nodes = []
+
+    def __init__(self, name, observed, dimensions = 1, transform = None):
+        super().__init__(name)
+        if dimensions == 1:
+            self.dimensions = agnp.array([1])
+        else:
+            self.dimensions = dimensions
+        if transform is not None:
+            if not transform.is_differentiable:
+                self.is_differentiable = False
+            self.transform = transform
         if observed is not None:
-            self.value = observed
             self.is_observed = True
-        Model.get_context().append_param(self)
-    
+            self.value = observed
+            self.constrained_value = self.value
+            self.jdet = 1
+            self.dimensions = agnp.array(observed.shape)
+        else:
+            self.is_observed = False
+            self.value = None
+            self.constrained_value = None
+        Model.get_context().add_random_variable(self)
+
+    def set_dependencies(self, inodes):
+        self.input_nodes = []
+        for node in inodes:
+            if isinstance(node, Node):
+                node.consumers.append(self)
+                self.input_nodes.append(node)
+            else:
+                n = Constant("C",node)
+                n.consumers.append(self)
+                self.input_nodes.append(n)
+
     # Transform stored value from unconstrained to constrained
     # and returns the correction term
     def apply_transform(self, v, det = False):
         if self.transform is not None:
+            # Constrained
             x = self.transform.inverse_transform(v)
             if det:
                 jdet = self.transform.transform_jacobian_det(v)
@@ -61,74 +59,17 @@ class RandomVariable(abc.ABC):
             else:
                 return v
 
-    @property
-    def name(self):
-        return self.__name
-
-    @name.setter
-    def name(self, n):
-        self.__name = n
-
-    @property
-    def cvalue(self):
-        return self.__cvalue
-
-    @cvalue.setter
-    def cvalue(self, cv):
-        self.__cvalue = cv
-
-    @property
-    def jdet(self):
-        return self.__jdet
-
-    @jdet.setter
-    def jdet(self, jd):
-        self.__jdet = jd
-    
-    @property
-    def value(self):
-        return self.__value
-
-    @value.setter
-    def value(self, v):
-        if self.check_value(v):
-            self.__value = v
-            cval, jdet = self.apply_transform(self.__value, det = True)
-            self.cvalue = cval
-            self.jdet = jdet
-        else:
-            raise TypeError("Invalid value for random variable %s" % self.__name)
-
-    @property
-    def is_observed(self):
-        return self.__is_observed
-
-    @is_observed.setter
-    def is_observed(self, o):
-        self.__is_observed = o
-
-    @property
-    def transform(self):
-        return self.__transform
-
-    @transform.setter
-    def transform(self, t):
-        self.__transform = t
+    def set_value(self, value):
+        if not self.is_observed:
+            self.value = value
+            self.constrained_value, self.jdet = self.apply_transform(value, det = True) 
 
     @abc.abstractmethod
-    def check_value(self, v):
-        return
-
-    @abc.abstractmethod
-    def log_density(self):
-        return
-
-    def log_density_p(self, p):
+    def log_density(self, constrained_value, *args):
         return
     
-    @abc.abstractmethod
-    def sample(self, apply_transform = True):
-        return
+    def log_density_and_jacobian(self, *args):
+        return self.log_density(self.constrained_value, *args) + agnp.log(self.jdet)
 
 class DefaultConstrainedRandomVariable(RandomVariable):
 
@@ -144,10 +85,6 @@ class DefaultConstrainedRandomVariable(RandomVariable):
             x2 = super().apply_transform(x, det = det)
             return x2
 
-"""
-Defines an extension of RandomVariable that by 
-default defines a Lower Bound Transform.
-"""
 class PositiveRandomVariable(DefaultConstrainedRandomVariable):
     
     def __init__(self, name, transform = None, observed = None):
@@ -156,10 +93,6 @@ class PositiveRandomVariable(DefaultConstrainedRandomVariable):
             transform = None
         super().__init__(name, transform = transform, observed = observed)
 
-"""
-Defines an extenstion of a RandomVariable that by
-default defines a set of bounds on a Random Variable
-"""
 class BoundedRandomVariable(DefaultConstrainedRandomVariable):
 
     def __init__(self, name, a, b, transform = None, observed = None):
@@ -167,14 +100,3 @@ class BoundedRandomVariable(DefaultConstrainedRandomVariable):
         if isinstance(transform, LowerUpperBoundRVTransform):
             transform = None
         super().__init__(name, transform = transform, observed = observed)
-
-
-class RandomVariableOperation(object):
-
-    def __init__(self, name, inputs):
-        self.name = name
-        self.inputs = inputs
-
-    @abc.abstractmethod
-    def compute(self):
-        return

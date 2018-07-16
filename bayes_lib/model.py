@@ -1,17 +1,18 @@
+import bayes_lib as bl
+
 import autograd.numpy as agnp
+import autograd.scipy as agsp
 import autograd
 import threading
 import collections
+import abc
+from .core import *
+
+class DuplicateNodeException(Exception):
+    pass
 
 class ModelNotDifferentiableException(Exception):
-   pass 
-
-class DuplicateParameterNameException(Exception):
     pass
-    
-"""
-Defines a Context object for a Model
-"""
 
 class Context(object):
 
@@ -39,116 +40,163 @@ class Context(object):
             cls.contexts.stack = []
         return cls.contexts.stack
 
-"""
-Model wrapper encompasses a probability model that contains
-parameters and specifies the computation of a log_density through
-the parameters
-"""
+
 class Model(Context):
 
-    _gld = None
-    is_differentiable = True 
+    is_differentiable = True
+    _grad_log_density = None
+    nodes_lp = None
+    _n_params = 0
 
-    def __init__(self, name = None):
-        self.name = name
-        self.param_lkup = {}
-        self.params = []
-        self.observed_params = []
-        self.unobserved_params = []
-        # Number of unobserved params
-        self.n_params = 0
+    def __init__(self):
+        self.node_lookup = {}
+        self.computation_graph = Graph()
 
-    def append_param(self, param):
-        if param.name in self.param_lkup:
-            raise DuplicateParameterNameException
+    def add_placeholder(self, node):
+        if node.name not in self.node_lookup:
+            self.computation_graph.placeholders.append(node)
+            self.node_lookup[node.name] = node
         else:
-            self.param_lkup[param.name] = param
+            raise DuplicateNodeException
 
-        self.params.append(param)
-        if not param.is_observed:
-            self.unobserved_params.append(param)
-            self.n_params += 1
+    def add_random_variable(self, node):
+        if node.name not in self.node_lookup:
+            self.computation_graph.random_variables.append(node)
+            self.node_lookup[node.name] = node
+            if not node.is_differentiable:
+                self.is_differentiable = False
         else:
-            self.observed_params.append(param)
-        
-        if not param.is_differentiable:
-            self.is_differentiable = False
+            raise DuplicateNodeException
 
-    def sample_param_vector(self, n_samples, apply_transform = True):
-        samples = []
-        for _ in range(n_samples):
-            param_vec = []
-            for i in range(len(self.unobserved_params)):
-                param_vec.append(self.unobserved_params[i].sample(apply_transform = apply_transform))
-            samples.append(param_vec)
-        return agnp.array(samples)
-
-    def sample_data(self, n_samples):
-        param_samples = self.sample_param_vector(n_samples, apply_transform = False)
-        full_samples = []
-        for i in range(n_samples):
-            self.set_param_vector(param_samples[i,:])
-            observed = []
-            for j in range(len(self.observed_params)):
-                observed.append(self.observed_params[j].sample())
-            full_samples.append((param_samples[i,:],observed))
-        return full_samples
-        
-    def get_param_vector(self):
-        param_vec = []
-        for i in range(len(self.unobserved_params)):
-            param_vec.append(self.unobserved_params[i].value)
-        return agnp.array(param_vec)
-
-    def set_param_vector(self, p_vals):
-        for i in range(len(self.unobserved_params)):
-            self.unobserved_params[i].value = p_vals[i]
-
-    def transform_param_vector(self, p_vals):
-        param_vec = []
-        for i in range(len(self.unobserved_params)):
-            param_vec.append(self.unobserved_params[i].apply_transform(p_vals[i]))
-        return agnp.array(param_vec)
+    def add_operation(self, node):
+        if node.name not in self.node_lookup:
+            self.computation_graph.operations.append(node)
+            self.node_lookup[node.name] = node
+            if not node.is_differentiable:
+                self.is_differentiable = False
+        else:
+            raise DuplicateNodeException
     
-    def get_constrained_params(self):
-        param_vec = agnp.array([p.cvalue for p in self.unobserved_params])
-        return param_vec
+    @property
+    def n_params(self):
+        if self.nodes_lp is None:
+            self._compile()
+        return self._n_params
 
-    def log_density(self):
-        logp = 0
-        for i in range(len(self.params)):
-            logp += self.params[i].log_density()
-        return logp
+    @n_params.setter
+    def n_params(self, n_params):
+        self._n_params = n_params
+    
+    def _compile(self):
 
-    def log_likelihood(self):
-        logp = 0
-        for i in range(len(self.observed_params)):
-            logp += self.observed_params[i].log_density()
-        return logp
+        # Get the computational nodes to iterate over in 
+        # order of necessary computation
+        self.nodes_lp = []
+        def recurse(node):
+            if not node.visited:
+                if isinstance(node, bl.ops.Operation) or isinstance(node, bl.rvs.RandomVariable):
+                    for input_node in node.input_nodes:
+                        recurse(input_node)
+                self.nodes_lp.append(node)
+                node.visited = True
+        for node in self.computation_graph.random_variables:
+            recurse(node)
+        
+        # Get the indicies of unobserved r.v.s
+        self.unobserved_indices = []
+        idx = 0
+        cur_parameter_pos = 0
+        n_total_params = 0
+        for i in range(len(self.computation_graph.random_variables)):
+            if not self.computation_graph.random_variables[i].is_observed:
+                start_idx = cur_parameter_pos
+                n_params = agnp.prod(self.computation_graph.random_variables[i].dimensions)
+                end_idx = start_idx + agnp.prod(self.computation_graph.random_variables[i].dimensions)
+                cur_parameter_pos = end_idx
+                self.unobserved_indices.append((idx, slice(start_idx,end_idx)))
+                idx += 1
+                n_total_params += n_params
+        self.n_params = n_total_params
 
-    def log_density_p(self, param_vec):
-        if len(param_vec.shape) < 2:
-            param_vec = param_vec.reshape(1,-1)
-        lps = []
-        for i in range(param_vec.shape[0]):
-            self.set_param_vector(param_vec[i,:])
-            lps.append(self.log_density())
-        return agnp.array(lps)
+        # Create autograd derivative function
+        if self.is_differentiable:
+            self._grad_log_density = autograd.grad(self._log_density)
+            #self._grad_log_density = autograd.value_and_grad(self._log_density)
 
-    def compile_gradient_(self):
+    def grad_log_density(self, parameters, feed_dict = {}):
         if not self.is_differentiable:
             raise ModelNotDifferentiableException
-        self._gld = autograd.grad(self.log_density_p)
+        else:
+            if self._grad_log_density is None:
+                self._compile()
 
-    def grad_log_density(self):
-        if self._gld is None:
-            self.compile_gradient_()
-        return self._gld(self.get_param_vector())
+        if len(parameters.shape) >= 2:
+            grad_lps = agnp.array([self._grad_log_density(parameters[i,:], feed_dict = feed_dict) for i in range(parameters.shape[0])])
+            return grad_lps
+        else:
+            return self._grad_log_density(parameters, feed_dict = feed_dict)
 
-    def grad_log_density_p(self,param_vec):
-        if self._gld is None:
-            print("Compiling")
-            self.compile_gradient_()
-        return self._gld(param_vec)
-
+    def log_density(self, parameters, feed_dict = {}):
+        if self.nodes_lp is None:
+            self._compile()
         
+        if len(parameters.shape) >= 2:
+            lps = agnp.array([self._log_density(parameters[i,:], feed_dict) for i in range(parameters.shape[0])])
+            return lps
+        else:
+            return self._log_density(parameters, feed_dict = feed_dict)
+
+    def _log_density(self, parameter, feed_dict = {}):
+        lp =  0
+        for i in range(len(self.unobserved_indices)):
+            rv_idx, parameter_range = self.unobserved_indices[i]
+            self.computation_graph.random_variables[rv_idx].set_value(parameter[parameter_range])
+
+        for node in self.nodes_lp:
+            if isinstance(node,Placeholder):
+                node.output = feed_dict[node]
+            elif isinstance(node,Constant):
+                node.output = node.value
+            elif isinstance(node,bl.rvs.RandomVariable):
+                node.inputs = [input_node.output for input_node in node.input_nodes]
+                node.output = node.constrained_value
+                t = node.log_density_and_jacobian(*node.inputs)
+                lp += t
+            else:
+                node.inputs = [input_node.output for input_node in node.input_nodes]
+                node.output = node.compute(*node.inputs)
+        return lp
+
+    def constrain_parameters(self, unconstrained_parameters):
+        if self.nodes_lp is None:
+            self._compile()
+        
+        if len(unconstrained_parameters.shape) == 1:
+            unconstrained_parameters = unconstrained_parameters.reshape(1,-1)
+        constrained_parameters = agnp.zeros(unconstrained_parameters.shape)
+        for k in range(constrained_parameters.shape[0]):
+            for i in range(len(self.unobserved_indices)):
+                rv_idx, parameter_range = self.unobserved_indices[i]
+                constrained_parameters[k,parameter_range] = self.computation_graph.random_variables[rv_idx].apply_transform(unconstrained_parameters[k,parameter_range])
+        return constrained_parameters
+
+class Placeholder(Node):
+
+    def __init__(self, name, dimensions):
+        super().__init__(name)
+        self.value = None
+        self.dimensions = dimensions
+        Model.get_context().add_placeholder(self)
+
+    def set_value(self, value):
+        self.value = value
+
+class Constant(Node):
+    
+    def __init__(self, name, value):
+        super().__init__(name)
+        if not isinstance(value, agnp.ndarray):
+            self.dimensions = agnp.array([1])
+        else:
+            self.dimensions = agnp.array(value.shape)
+        self.value = value

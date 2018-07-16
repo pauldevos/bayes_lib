@@ -11,6 +11,8 @@ to compute the determinant of the jacobian of the transform.
 """
 class RVTransform(abc.ABC):
     
+    is_differentiable = False
+    
     # Defines transform from constrained to unconstrained
     @abc.abstractmethod
     def transform(self, x):
@@ -23,13 +25,15 @@ class RVTransform(abc.ABC):
     
     # Defines the determinant of jacobian of transform
     @abc.abstractmethod
-    def transform_jacobian_det(self, x):
+    def transform_jacobian_det(self, y):
         return
 
 """
 Collection of pre-defined transforms
 """
 class LowerBoundRVTransform(RVTransform):
+
+    is_differentiable = True
     
     def __init__(self, lb):
         self.__lb = lb
@@ -45,6 +49,8 @@ class LowerBoundRVTransform(RVTransform):
 
 class UpperBoundRVTransform(RVTransform):
 
+    is_differentiable = True
+
     def __init__(self, ub):
         self.__ub = ub
 
@@ -58,6 +64,8 @@ class UpperBoundRVTransform(RVTransform):
         return agnp.exp(y)
 
 class LowerUpperBoundRVTransform(RVTransform):
+
+    is_differentiable = True
 
     def __init__(self, lb, ub):
         self.__lb = lb

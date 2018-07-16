@@ -1,33 +1,20 @@
 from .core import *
 
-import autograd.numpy as agnp
+import autograd.scipy as agsp
 from autograd.scipy.stats import beta
 
 class Beta(PositiveRandomVariable):
 
     is_differentiable = True 
     
-    def __init__(self, name, alpha, beta, transform = None, observed = None):
-        super().__init__(name, transform = transform, observed = observed)
+    def __init__(self, name, alpha, beta, dimensions = 1, transform = None, observed = None):
+        super().__init__(name, dimensions = dimensions, transform = transform, observed = observed)
         self.alpha = alpha
         self.beta = beta
-        if observed is None:
-            self.value = self.sample(apply_transform = False)
+        self.set_dependencies([alpha, beta])
 
-    def check_value(self, v):
-        return True
-
-    def log_density(self):
-        v = self.cvalue
-        jd = self.jdet
-        lpdf = agnp.sum(beta.logpdf(v, get_rv_value(self.alpha), scale = get_rv_value(self.beta))) + agnp.log(jd)
-        return lpdf
-
-    def sample(self, apply_transform = True):
-        z = beta.rvs(get_rv_value(self.shape, s = True), scale = get_rv_value(self.scale, s = True))
-        if apply_transform:
-            return self.apply_transform(z)
+    def log_density(self, value, alpha, beta):
+        if agnp.all(self.dimensions == agnp.array([1])):
+            return agsp.stats.beta.logpdf(value, alpha, scale = beta)
         else:
-            return z
-
-
+            return agnp.sum(agsp.stats.beta.logpdf(value, alpha, scale = beta))
