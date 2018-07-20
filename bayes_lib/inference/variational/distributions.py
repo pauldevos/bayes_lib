@@ -31,6 +31,10 @@ class VariationalDistribution(object):
     def sample(self, n_samples):
         return
 
+    @abc.abstractmethod
+    def entropy(self, variational_params, variational_samples):
+        return
+
 class DifferentiableVariationalDistribution(VariationalDistribution):
 
     is_differentiable = True 
@@ -44,6 +48,10 @@ class DifferentiableVariationalDistribution(VariationalDistribution):
             raise VariationalDistributionNotDifferentiableException
         return
 
+    @abc.abstractmethod
+    def grad_entropy(self, variational_params, variational_samples):
+        return
+
 class ReparameterizableVariationalDistribution(VariationalDistribution):
 
     is_reparameterizable = True
@@ -52,25 +60,14 @@ class ReparameterizableVariationalDistribution(VariationalDistribution):
     def sample_p(self, variataional_params, n_samples):
         return
 
-    @abc.abstractmethod
-    def grad_variational_params(self, variational_params, variational_samples):
-        return
-
-    @abc.abstractmethod
-    def entropy(self, variational_params):
-        return
-
-    @abc.abstractmethod
-    def grad_entropy(self, variational_params, variational_samples):
-        return
-
-class PlanarNormalizingFlow(VariationalDistribution):
+class PlanarNormalizingFlow(ReparameterizableVariationalDistribution, DifferentiableVariationalDistribution):
 
     is_differentiable = True
     
     def __init__(self, n_layers, shared_params = False):
         self.n_layers = n_layers
         shared_params = shared_params
+        self.grad_log_density_p = autograd.grad(self.log_density_p)
 
     def initialize(self, n_model_params, init = None):
         self.n_model_params = n_model_params
@@ -131,17 +128,49 @@ class PlanarNormalizingFlow(VariationalDistribution):
                                      zs[i-1]))
 
         return np.hstack(zs)
+    
+    def sample_p(self, variational_params, n_samples):
+        nd = self.n_model_params * self.n_layers
+        us = variational_params[:nd]
+        ws = variational_params[nd:nd*2]
+        bs = variational_params[nd*2:]
+
+        z0 = np.random.normal(0, 1, size = (n_samples, self.n_model_params))
+        zs = [z0]
+        it = 0
+        for i in range(self.n_layers):
+            zs.append(self.transform(ws[i*(self.n_model_params):(i+1) * self.n_model_params],
+                                     bs[i:i + 1],
+                                     us[i*(self.n_model_params):(i+1) * self.n_model_params],
+                                     zs[i-1]))
+        return zs[-1]
+
+    def entropy(self, variational_params, variational_samples):
+        return 0.5 * self.n_model_params * (1.0 + agnp.log(2 * agnp.pi)) + agnp.sum(self.n_model_params)
+
+    def grad_entropy(self, variational_params, variational_samples):
+        return 0
 
     def log_density(self, variational_samples):
-        z0 = variational_samples[:, :self.n_model_params]
-        lpdfs = agnp.sum(agsp.stats.norm.logpdf(z0), axis = 1) 
+        return agnp.array([self.log_density_p(self.variational_params, variational_samples[i,:]) for i in range(variational_samples.shape[0])])[:,0]
+
+    def log_density_p(self, variational_params, zs):
+        nd = self.n_model_params * self.n_layers
+        us = variational_params[:nd]
+        ws = variational_params[nd:nd*2]
+        bs = variational_params[nd*2:]
+        z0 = zs[:self.n_model_params]
+        lpdfs = agnp.sum(agsp.stats.norm.logpdf(z0, 0, 1)) 
         for k in range(self.n_layers):
-            zk = variational_samples[:, k*(self.n_model_params):(k+1)*self.n_model_params]
-            lpdfs += self.log_det_jacobian(self.ws[k*(self.n_model_params):(k+1) * self.n_model_params],
-                                           self.bs[k:k + 1],
-                                           self.us[k*(self.n_model_params):(k+1) * self.n_model_params],
+            zk = zs[k*(self.n_model_params):(k+1)*self.n_model_params]
+            lpdfs += self.log_det_jacobian(ws[k*(self.n_model_params):(k+1) * self.n_model_params],
+                                           bs[k:k + 1],
+                                           us[k*(self.n_model_params):(k+1) * self.n_model_params],
                                            zk)
         return lpdfs
+    
+    def grad_log_density(self, variational_samples):
+        return agnp.array([self.grad_log_density_p(self.variational_params, variational_samples[i,:]) for i in range(variational_samples.shape[0])])
 
 class MeanField(DifferentiableVariationalDistribution, ReparameterizableVariationalDistribution):
 
@@ -208,6 +237,9 @@ class MeanField(DifferentiableVariationalDistribution, ReparameterizableVariatio
         v_stds = variational_params[self.n_model_params:]
         return 0.5 * self.n_model_params * (1.0 + agnp.log(2 * agnp.pi)) + agnp.sum(v_stds)
 
+    def grad_entropy(self, variatianal_params, variational_samples):
+        return agnp.hstack([agnp.zeros(self.n_model_params), agnp.ones(self.n_model_params)])
+
 class FullRank(DifferentiableVariationalDistribution, ReparameterizableVariationalDistribution):
 
     def initialize(self, n_model_params, init = None):
@@ -270,7 +302,8 @@ class FullRank(DifferentiableVariationalDistribution, ReparameterizableVariation
     def sample_p(self, variational_params, n_samples):
         v_means = variational_params[:self.n_model_params]
         v_cov_sqrt = variational_params[self.n_model_params:].reshape((self.n_model_params, self.n_model_params))
-        v_cov = agnp.dot(v_cov_sqrt.T,v_cov_sqrt)
+        v_cov = agnp.dot(v_cov_sqrt.T,v_cov_sqrt) 
+        print(v_cov)
         L = agnp.linalg.cholesky(v_cov)
         v_samples = v_means + agnp.dot(agnp.random.randn(n_samples, self.n_model_params), L)
         return v_samples

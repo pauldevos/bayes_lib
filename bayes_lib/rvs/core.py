@@ -87,16 +87,16 @@ class DefaultConstrainedRandomVariable(RandomVariable):
 
 class PositiveRandomVariable(DefaultConstrainedRandomVariable):
     
-    def __init__(self, name, transform = None, observed = None):
+    def __init__(self, name, dimensions = 1, transform = None, observed = None):
         self.default_transform = LowerBoundRVTransform(0)
         if isinstance(transform, LowerBoundRVTransform):
             transform = None
-        super().__init__(name, transform = transform, observed = observed)
+        super().__init__(name, dimensions = dimensions, transform = transform, observed = observed)
 
 class BoundedRandomVariable(DefaultConstrainedRandomVariable):
 
-    def __init__(self, name, a, b, transform = None, observed = None):
+    def __init__(self, name, a, b, dimensions = 1, transform = None, observed = None):
         self.default_transform = LowerUpperBoundRVTransform(a, b)
         if isinstance(transform, LowerUpperBoundRVTransform):
             transform = None
-        super().__init__(name, transform = transform, observed = observed)
+        super().__init__(name, dimensions = dimensions, transform = transform, observed = observed)

@@ -1,7 +1,7 @@
 from .core import *
 import autograd.numpy as agnp
 
-class Matmul(Operation):
+class matmul(Operation):
 
     is_differentiable = True
 
