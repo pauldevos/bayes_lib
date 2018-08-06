@@ -25,17 +25,12 @@ class MetropolisHastings(MCMCSampler):
             pos = np.random.normal(-1,1,size = self.model.n_params)
 
         lpdf = self.model.log_density(pos)
-        print("Initial LPDF %f" % (lpdf))
 
         for i in range(n_iters):
-            print("Iteration %d" % (i))
             new_pos, forward_log_density, reverse_log_density = self.proposal_and_log_density(pos)
             
             new_lpdf = self.model.log_density(new_pos)
-            print("New LPDF %f" % (new_lpdf))
-            print("Accept Probability %f" % (np.exp(new_lpdf + forward_log_density - lpdf - reverse_log_density)))
             if new_lpdf + forward_log_density > -np.inf and np.log(np.random.rand()) < np.minimum(0, (new_lpdf + forward_log_density) - (lpdf + reverse_log_density)):
-                print("Accept")
                 chain.append(new_pos)
                 pos = new_pos
                 lpdf = new_lpdf

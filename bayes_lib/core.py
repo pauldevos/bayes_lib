@@ -4,6 +4,7 @@ class Graph(object):
         self.placeholders = []
         self.random_variables = []
         self.operations = []
+        self.constants = []
 
     def reset(self):
         for node in self.placeholders:
@@ -11,6 +12,8 @@ class Graph(object):
         for node in self.random_variables:
             node.visited = False
         for node in self.operations:
+            node.visited = False
+        for node in self.constants:
             node.visited = False
 
 class Node(object):

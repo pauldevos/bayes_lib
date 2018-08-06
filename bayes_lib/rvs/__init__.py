@@ -7,6 +7,8 @@ from .uniform import *
 from .gamma import *
 from .beta import *
 from .variable import *
+
+from .bernoulli import *
 """
 from .surrogate import *
 """

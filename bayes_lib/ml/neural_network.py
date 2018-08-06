@@ -42,6 +42,21 @@ class FCLayer(Layer):
         W, b = self.unpack_params(weights)
         return self.nonlinearity(agnp.einsum('mnd,mdo->mno', inputs, W) + b)
 
+class MaskedFCLayer(FCLayer):
+    
+    def __init__(self, input_dim, output_dim, mask, nonlinearity = linear):
+        super().__init__(input_dim, output_dim, nonlinearity = nonlinearity)
+        self.mask = mask[agnp.newaxis,:,:]
+
+    def forward(self, weights, inputs):
+        if len(inputs.shape) > 3:
+            inputs = inputs.reshape((inputs.shape[0],inputs.shape[1],-1))
+        if len(inputs.shape) < 3:
+            inputs = inputs[agnp.newaxis,:,:]
+        W, b = self.unpack_params(weights)
+        return self.nonlinearity(agnp.einsum('mnd,mdo->mno', inputs, (W * self.mask)) + b)
+
+
 class ConvLayer(Layer):
 
     def __init__(self, input_dims, kernel_shape, num_filters, nonlinearity = linear):
@@ -208,8 +223,8 @@ class LSTMLayer(Layer):
 
 class BaseNeuralNetwork(bl.ops.Operation):
 
-    num_weights = 0
-    layers = []
+    layers = None
+    num_weights = None
 
     def __init__(self, name, weights, inputs):
         self.weights = weights
@@ -225,12 +240,16 @@ class BaseNeuralNetwork(bl.ops.Operation):
     def compute(self, weights, inputs):
         weights = weights.reshape(1,-1)
         #t = len(weights)
-        inputs = agnp.expand_dims(inputs, 0).repeat(1,0)
+        if len(inputs.shape) < 3:
+            inputs = agnp.expand_dims(inputs, 0).repeat(1,0)
         for i, w in enumerate(self.unpack_layers(weights)):
             inputs = self.layers[i].forward(w, inputs)
         return inputs
 
     def add_layer(self, layer):
+        if self.layers is None:
+            self.layers = []
+            self.num_weights = 0
         self.layers.append(layer)
         self.num_weights += layer.num_weights
 
@@ -243,7 +262,23 @@ class DenseNeuralNetwork(BaseNeuralNetwork):
         for m, n in shapes[:len(shapes)-1]:
             self.add_layer(FCLayer(m, n, nonlinearity))
         self.add_layer(FCLayer(shapes[-1][0], shapes[-1][1], nonlinearity = last_layer_nonlinearity))
-
         weights = bl.rvs.Normal('rv_%s' % (name), 0, 1, dimensions = agnp.array(self.num_weights))
         #weights = bl.rvs.Variable('rv_%s' % (name), dimensions = agnp.array(self.num_weights))
         super().__init__(name, weights, inputs)
+
+
+class MaskedNeuralNetwork(BaseNeuralNetwork):
+    
+    is_differentiable = True
+
+    def  __init__(self, name, inputs, layer_dims, masks, nonlinearity = sigmoid, last_layer_nonlinearity = linear):
+        shapes = list(zip(layer_dims[:-1], layer_dims[1:]))
+        for i, dims in enumerate(shapes[:len(shapes)-1]):
+            m,n = dims
+            self.add_layer(MaskedFCLayer(m, n, masks[i], nonlinearity))
+        self.add_layer(MaskedFCLayer(shapes[-1][0], shapes[-1][1], masks[-1], nonlinearity = last_layer_nonlinearity))
+        #weights = bl.rvs.Normal('rv_%s' % (name), 0, 1, dimensions = agnp.array(self.num_weights))
+        weights = bl.rvs.Variable('rv_%s' % (name), dimensions = agnp.array(self.num_weights))
+        super().__init__(name, weights, inputs)
+
+

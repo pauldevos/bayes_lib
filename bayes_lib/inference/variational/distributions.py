@@ -3,7 +3,7 @@ import autograd.scipy as agsp
 import autograd.numpy as agnp
 import autograd
 import abc
-from bayes_lib.math.utils import sigmoid, grad_sigmoid
+from bayes_lib.math.utils import sigmoid, grad_sigmoid, tanh, grad_tanh
 
 class VariationalDistributionNotDifferentiableException(Exception):
     pass
@@ -57,13 +57,11 @@ class ReparameterizableVariationalDistribution(VariationalDistribution):
     is_reparameterizable = True
 
     @abc.abstractmethod
-    def sample_p(self, variataional_params, n_samples):
+    def sample_p(self, variational_params, n_samples):
         return
 
 class PlanarNormalizingFlow(ReparameterizableVariationalDistribution, DifferentiableVariationalDistribution):
 
-    is_differentiable = True
-    
     def __init__(self, n_layers, shared_params = False):
         self.n_layers = n_layers
         shared_params = shared_params
@@ -104,10 +102,10 @@ class PlanarNormalizingFlow(ReparameterizableVariationalDistribution, Differenti
         self.__bs = bs
 
     def log_det_jacobian(self, w, b, u, z):
-        return agnp.abs((grad_sigmoid(z @ w + b).reshape(-1,1) * w) @ u)
+        return agnp.abs((grad_tanh(z @ w + b).reshape(-1,1) * w) @ u)
 
     def transform(self, w, b, u, z):
-        return z + u * sigmoid(z @ w + b).reshape(-1,1)
+        return z + u * tanh(z @ w + b).reshape(-1,1)
     
     @VariationalDistribution.variational_params.setter
     def variational_params(self, variational_params):
@@ -180,8 +178,8 @@ class MeanField(DifferentiableVariationalDistribution, ReparameterizableVariatio
     def initialize(self, n_model_params, init = None):
         self.n_model_params = n_model_params
         if init is None:
-            vm = np.zeros(self.n_model_params)
-            vs = np.zeros(self.n_model_params)
+            vm = np.random.normal(0,1/agnp.sqrt(self.n_model_params),self.n_model_params)
+            vs = np.random.normal(0,1/agnp.sqrt(self.n_model_params),self.n_model_params)
             self.variational_params = np.hstack([vm, vs])
         else:
             self.variational_params = init
@@ -212,6 +210,7 @@ class MeanField(DifferentiableVariationalDistribution, ReparameterizableVariatio
         v_samples = np.random.normal(0, 1, size = (n_samples, self.n_model_params))
         v_samples = self.v_means + v_samples * self.v_stds
         return v_samples
+
     """
     Methods to specify that log_density of variational distribution is directly differentiable
     """

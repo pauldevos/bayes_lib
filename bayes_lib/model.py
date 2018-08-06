@@ -51,6 +51,7 @@ class Model(Context):
     def __init__(self):
         self.node_lookup = {}
         self.computation_graph = Graph()
+        self.nodes_postorder = {}
 
     def add_placeholder(self, node):
         if node.name not in self.node_lookup:
@@ -58,6 +59,9 @@ class Model(Context):
             self.node_lookup[node.name] = node
         else:
             raise DuplicateNodeException
+
+    def add_constant(self, node):
+        self.computation_graph.constants.append(node)
 
     def add_random_variable(self, node):
         if node.name not in self.node_lookup:
@@ -104,7 +108,7 @@ class Model(Context):
         
         # Get the indicies of unobserved r.v.s
         self.unobserved_indices = []
-        idx = 0
+        start_idx = 0
         cur_parameter_pos = 0
         n_total_params = 0
         for i in range(len(self.computation_graph.random_variables)):
@@ -113,15 +117,16 @@ class Model(Context):
                 n_params = agnp.prod(self.computation_graph.random_variables[i].dimensions)
                 end_idx = start_idx + agnp.prod(self.computation_graph.random_variables[i].dimensions)
                 cur_parameter_pos = end_idx
-                self.unobserved_indices.append((idx, slice(start_idx,end_idx)))
-                idx += 1
+                self.unobserved_indices.append((i, slice(start_idx,end_idx)))
                 n_total_params += n_params
         self.n_params = n_total_params
 
         # Create autograd derivative function
         if self.is_differentiable:
             self._grad_log_density = autograd.grad(self._log_density)
-            #self._grad_log_density = autograd.value_and_grad(self._log_density)
+
+        # Reset node for later compilation
+        self.computation_graph.reset()
 
     def grad_log_density(self, parameters, feed_dict = {}):
         if not self.is_differentiable:
@@ -151,7 +156,7 @@ class Model(Context):
         for i in range(len(self.unobserved_indices)):
             rv_idx, parameter_range = self.unobserved_indices[i]
             self.computation_graph.random_variables[rv_idx].set_value(parameter[parameter_range])
-
+        
         for node in self.nodes_lp:
             if isinstance(node,Placeholder):
                 node.output = feed_dict[node]
@@ -166,6 +171,42 @@ class Model(Context):
                 node.inputs = [input_node.output for input_node in node.input_nodes]
                 node.output = node.compute(*node.inputs)
         return lp
+
+    def set_param(self, parameter):
+        if self.nodes_lp is None:
+            self._compile()
+
+        for i in range(len(self.unobserved_indices)):
+            rv_idx, parameter_range = self.unobserved_indices[i]
+            self.computation_graph.random_variables[rv_idx].set_value(parameter[parameter_range])
+
+    def evaluate(self, node, feed_dict = {}):
+        if node.name in self.nodes_postorder:
+            nodes_postorder = self.nodes_postorder[node.name]
+        else:
+            nodes_postorder = []
+            def recurse(node):
+                if not node.visited:
+                    if isinstance(node, bl.ops.Operation) or isinstance(node, bl.rvs.RandomVariable):
+                        for input_node in node.input_nodes:
+                            recurse(input_node)
+                    nodes_postorder.append(node)
+                    node.visited = True
+            recurse(node)
+            self.nodes_postorder[node.name] = nodes_postorder
+        
+        for node in nodes_postorder:
+            if isinstance(node,Placeholder):
+                node.output = feed_dict[node]
+            elif isinstance(node,Constant):
+                node.output = node.value
+            elif isinstance(node,bl.rvs.RandomVariable):
+                node.inputs = [input_node.output for input_node in node.input_nodes]
+                node.output = node.constrained_value
+            else:
+                node.inputs = [input_node.output for input_node in node.input_nodes]
+                node.output = node.compute(*node.inputs)
+        return node.output
 
     def constrain_parameters(self, unconstrained_parameters):
         if self.nodes_lp is None:
@@ -200,3 +241,4 @@ class Constant(Node):
         else:
             self.dimensions = agnp.array(value.shape)
         self.value = value
+        Model.get_context().add_constant(self)

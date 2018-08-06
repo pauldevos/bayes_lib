@@ -19,6 +19,12 @@ def linear(y):
 def exp(y):
     return agnp.exp(y)
 
+def tanh(y):
+    return agnp.tanh(y)
+
+def grad_tanh(y):
+    return 1 - (agnp.tanh(y)**2)
+
 # Aliases
 sigmoid = inv_logit
 grad_sigmoid = grad_inv_logit

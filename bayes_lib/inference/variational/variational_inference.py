@@ -2,6 +2,7 @@ import numpy as np
 from bayes_lib.math.optimizers import GradientDescent
 from .distributions import *
 import abc
+import functools
 
 class VariationalInference(object):
 
@@ -58,12 +59,12 @@ class ReparameterizedVariationalInference(VariationalInference):
         self.v_dist = variational_dist
         self.v_dist.initialize(self.model.n_params, init = init)
 
-    def run(self, n_mc_samples = 1, n_grad_samples = 1, optimizer = GradientDescent(learning_rate = 1e-7), iter_func = None, iter_interval = 1, max_opt_iters = 1000, convergence = 1e-2):
-
+    def run(self, n_mc_samples = 1, n_grad_samples = 1, optimizer = GradientDescent(learning_rate = 1), iter_func = None, iter_interval = 1, max_opt_iters = 1000, convergence = 1e-4):
+        
         def mc_elbo(variational_params, n_samples = n_mc_samples):
             v_samples = self.v_dist.sample_p(variational_params, n_samples)
-            logp_model = agnp.mean(self.model.log_density(v_samples))
-            return logp_model + self.v_dist.entropy(variational_params, v_samples)
+            logp_model = self.model.log_density(v_samples)
+            return agnp.mean(logp_model) + self.v_dist.entropy(variational_params, v_samples)
 
         grad_mc_elbo = autograd.grad(mc_elbo)
 
