@@ -1,62 +1,45 @@
 import bayes_lib as bl
-from bayes_lib.math.utils import *
-from ..core import *
-
-import numpy as np
-import autograd.numpy as agnp
-import autograd.scipy as agsp
-import autograd
 import abc
-from autograd.scipy.misc import logsumexp
-from autograd.scipy.signal import convolve
+
+import tensorflow as tf
 
 class Layer(object):
     
     def __init__(self, input_dim, output_dim):
-        self.num_weights = 0
         self.m = input_dim
         self.n = output_dim
 
     @abc.abstractmethod
-    def forward(self, weights, inputs):
+    def forward(self, inputs):
         return
+
+    def get_weights(self):
+        return 
     
 class FCLayer(Layer):
     
-    def __init__(self, input_dim, output_dim, nonlinearity = linear):
+    def __init__(self, input_dim, output_dim, nonlinearity = tf.nn.relu):
         super().__init__(input_dim, output_dim)
         self.nonlinearity = nonlinearity
-        self.num_weights = (self.m+1)*self.n
+        self.W = tf.Variable(tf.random_normal([input_dim, output_dim]))
+        self.b = tf.Variable(tf.random_normal([output_dim]))
         
-        # Xavier Initialization
-        # self.params = np.random.normal(0, np.sqrt(2/(self.m + self.n)), size = (1,self.num_weights))
-        
-    def unpack_params(self,weights):
-        num_weight_sets = len(weights)
-        return weights[:, :self.m*self.n].reshape((num_weight_sets, self.m, self.n)),\
-               weights[:, self.m*self.n:].reshape((num_weight_sets, 1, self.n))
+    def forward(self, inputs):
+        return self.nonlinearity(tf.add(tf.matmul(inputs, self.W),self.b))
 
-    def forward(self, weights, inputs):
-        if len(inputs.shape) > 3:
-            inputs = inputs.reshape((inputs.shape[0],inputs.shape[1],-1))
-        W, b = self.unpack_params(weights)
-        return self.nonlinearity(agnp.einsum('mnd,mdo->mno', inputs, W) + b)
+    def get_weights(self):
+        return [self.W, self.b]
 
 class MaskedFCLayer(FCLayer):
     
-    def __init__(self, input_dim, output_dim, mask, nonlinearity = linear):
+    def __init__(self, input_dim, output_dim, mask, nonlinearity = tf.nn.relu):
         super().__init__(input_dim, output_dim, nonlinearity = nonlinearity)
-        self.mask = mask[agnp.newaxis,:,:]
+        self.mask = mask
 
-    def forward(self, weights, inputs):
-        if len(inputs.shape) > 3:
-            inputs = inputs.reshape((inputs.shape[0],inputs.shape[1],-1))
-        if len(inputs.shape) < 3:
-            inputs = inputs[agnp.newaxis,:,:]
-        W, b = self.unpack_params(weights)
-        return self.nonlinearity(agnp.einsum('mnd,mdo->mno', inputs, (W * self.mask)) + b)
+    def forward(self, inputs):
+        return self.nonlinearity(tf.add(tf.matmul(inputs, tf.multiply(self.W,self.mask)), self.b))
 
-
+"""
 class ConvLayer(Layer):
 
     def __init__(self, input_dims, kernel_shape, num_filters, nonlinearity = linear):
@@ -220,65 +203,48 @@ class LSTMLayer(Layer):
         
         out = agnp.array(outputs).reshape((inputs.shape[0],inputs.shape[1] + 1, inputs.shape[2], inputs.shape[3]))
         return out
+"""
 
-class BaseNeuralNetwork(bl.ops.Operation):
-
-    layers = None
-    num_weights = None
-
-    def __init__(self, name, weights, inputs):
-        self.weights = weights
-        self.inputs = inputs
-        super().__init__(name, [weights,inputs])
+class BaseNeuralNetwork(object):
     
+    def __init__(self):
+        self.layers = []
+        self.weights = []
+
     def unpack_layers(self, weights):
         num_weight_sets = len(weights)
         for layer in self.layers:
             yield weights[:, :layer.num_weights]
             weights = weights[:, layer.num_weights:]
 
-    def compute(self, weights, inputs):
-        weights = weights.reshape(1,-1)
-        #t = len(weights)
-        if len(inputs.shape) < 3:
-            inputs = agnp.expand_dims(inputs, 0).repeat(1,0)
-        for i, w in enumerate(self.unpack_layers(weights)):
-            inputs = self.layers[i].forward(w, inputs)
-        return inputs
+    def compute(self, inputs):
+        o = inputs
+        for layer in self.layers:
+            o = layer.forward(o)
+        return o
 
     def add_layer(self, layer):
-        if self.layers is None:
-            self.layers = []
-            self.num_weights = 0
         self.layers.append(layer)
-        self.num_weights += layer.num_weights
+        self.weights += layer.get_weights()
+
+    def get_weights(self):
+        return self.weights
 
 class DenseNeuralNetwork(BaseNeuralNetwork):
 
-    is_differentiable = True
-
-    def  __init__(self, name, inputs, layer_dims, nonlinearity = sigmoid, last_layer_nonlinearity = linear):
+    def __init__(self, layer_dims, nonlinearity = tf.nn.relu, last_layer_nonlinearity = bl.math.utils.linear):
+        super().__init__()
         shapes = list(zip(layer_dims[:-1], layer_dims[1:]))
-        for m, n in shapes[:len(shapes)-1]:
+        for m,n in shapes[:len(shapes)-1]:
             self.add_layer(FCLayer(m, n, nonlinearity))
         self.add_layer(FCLayer(shapes[-1][0], shapes[-1][1], nonlinearity = last_layer_nonlinearity))
-        weights = bl.rvs.Normal('rv_%s' % (name), 0, 1, dimensions = agnp.array(self.num_weights))
-        #weights = bl.rvs.Variable('rv_%s' % (name), dimensions = agnp.array(self.num_weights))
-        super().__init__(name, weights, inputs)
-
 
 class MaskedNeuralNetwork(BaseNeuralNetwork):
     
-    is_differentiable = True
-
-    def  __init__(self, name, inputs, layer_dims, masks, nonlinearity = sigmoid, last_layer_nonlinearity = linear):
+    def  __init__(self, layer_dims, masks, nonlinearity = tf.nn.relu, last_layer_nonlinearity = bl.math.utils.linear):
+        super().__init__()
         shapes = list(zip(layer_dims[:-1], layer_dims[1:]))
         for i, dims in enumerate(shapes[:len(shapes)-1]):
             m,n = dims
             self.add_layer(MaskedFCLayer(m, n, masks[i], nonlinearity))
         self.add_layer(MaskedFCLayer(shapes[-1][0], shapes[-1][1], masks[-1], nonlinearity = last_layer_nonlinearity))
-        #weights = bl.rvs.Normal('rv_%s' % (name), 0, 1, dimensions = agnp.array(self.num_weights))
-        weights = bl.rvs.Variable('rv_%s' % (name), dimensions = agnp.array(self.num_weights))
-        super().__init__(name, weights, inputs)
-
-

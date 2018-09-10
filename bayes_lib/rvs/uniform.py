@@ -1,21 +1,21 @@
 from .core import *
 
-import autograd.scipy as agsp
-import autograd.numpy as agnp
+import tensorflow as tf
 
 class Uniform(BoundedRandomVariable):
 
     is_differentiable = True
+    is_reparameterizable = True
 
-    def __init__(self, name, lb, ub, dimensions = 1, transform = None, observed = None):
-        super().__init__(name, lb, ub, dimensions = dimensions, transform = transform, observed = observed)
-        self.lb = lb
-        self.ub = ub
-        self.set_dependencies([lb, ub])
+    def __init__(self, lb, ub, dims = 1, observed = None, transform = None, default_value = 0., *args, **kwargs):
+        self.lb = float(lb)
+        self.ub = float(ub)
+        self.N = dims
+        super().__init__(observed, default_value, self.lb, self.ub, transform = transform, *args, **kwargs)
+    
+    def log_density(self):
+        return tf.log(self.ub - self.lb) * self.N
 
-    def log_density(self, value, lb, ub):
-        if agnp.all(self.dimensions == agnp.array([1])):
-            return -agnp.log(ub - lb)
-        else:
-            return -agnp.log(ub - lb) * value.shape[0]
+    def sample(self, shape):
+        return tf.random_uniform(shape,0,1) * (self.ub - self.lb) + self.lb
 

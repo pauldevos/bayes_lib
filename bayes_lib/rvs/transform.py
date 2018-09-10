@@ -1,4 +1,4 @@
-import autograd.numpy as agnp
+import tensorflow as tf
 import abc
 
 from ..math.utils import logit, inv_logit
@@ -10,8 +10,6 @@ how to transfrom from unconstrained to constrained, and how
 to compute the determinant of the jacobian of the transform.
 """
 class RVTransform(abc.ABC):
-    
-    is_differentiable = False
     
     # Defines transform from constrained to unconstrained
     @abc.abstractmethod
@@ -33,39 +31,33 @@ Collection of pre-defined transforms
 """
 class LowerBoundRVTransform(RVTransform):
 
-    is_differentiable = True
-    
     def __init__(self, lb):
         self.__lb = lb
 
     def transform(self, x):
-        return agnp.log(x - self.__lb)
+        return tf.log(x - self.__lb)
 
     def inverse_transform(self, y):
-        return agnp.exp(y) + self.__lb
+        return tf.exp(y) + self.__lb
 
     def transform_jacobian_det(self, y):
-        return agnp.exp(y)
+        return tf.exp(y)
 
 class UpperBoundRVTransform(RVTransform):
-
-    is_differentiable = True
 
     def __init__(self, ub):
         self.__ub = ub
 
     def transform(self, x):
-        return agnp.log(self.__ub - x)
+        return tf.log(self.__ub - x)
     
     def inverse_transform(self, y):
-        return self.__ub - agnp.exp(y)
+        return self.__ub - tf.exp(y)
 
     def transform_jacobian_det(self, y):
-        return agnp.exp(y)
+        return tf.exp(y)
 
 class LowerUpperBoundRVTransform(RVTransform):
-
-    is_differentiable = True
 
     def __init__(self, lb, ub):
         self.__lb = lb

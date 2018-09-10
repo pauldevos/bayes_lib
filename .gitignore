@@ -111,3 +111,6 @@ tests/results/
 
 # data folders
 tests/data/
+# Mac files
+
+.DS_Store
