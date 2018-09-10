@@ -1,19 +1,14 @@
 from .core import *
 
-import autograd.scipy as agsp
-import autograd.numpy as agnp
+import tensorflow as tf
 
 class Bernoulli(RandomVariable):
 
     is_differentiable = True
     
-    def __init__(self, name, theta, dimensions = 1, transform = None, observed = None):
-        super().__init__(name, dimensions = dimensions, transform = transform, observed = observed)
+    def __init__(self, theta, observed = None, transform = None, default_value = 0.5, *args, **kwargs):
+        super().__init__(observed, default_value, transform = transform, *args, **kwargs)
         self.theta = theta
-        self.set_dependencies([theta])
 
-    def log_density(self, value, theta):
-        if agnp.all(self.dimensions == agnp.array([1])):
-            return (value) * theta + (1 - value) * (1 - theta)
-        else:
-            return agnp.sum(value * theta + (1 - value) * (1 - theta))
+    def log_density(self):
+        return tf.reduce_sum((self.value()) * tf.log(self.theta) + (1 - self.value()) * tf.log(1 - self.theta))

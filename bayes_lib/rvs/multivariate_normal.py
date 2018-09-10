@@ -1,22 +1,20 @@
 from .core import *
 
-import autograd.scipy as agsp
-import autograd.numpy as agnp
+import tensorflow as tf
 
 class Multivariate_Normal(RandomVariable):
 
     is_differentiable = True
+    is_reparameterizable = True
     
-    def __init__(self, name, mu, cov, dimensions = 1, transform = None, observed = None):
-        super().__init__(name, dimensions = dimensions, transform = transform, observed = observed)
+    def __init__(self, mu, cov, observed = None, transform = None, default_value = 0., *args, **kwargs):
+        super().__init__(observed, default_value, transform = transform, *args, **kwargs)
         self.mu = mu
         self.cov = cov
-        self.set_dependencies([mu, cov])
 
-    def log_density(self, value, mu, cov):
-        cov = cov + 1e-6 * agnp.eye(cov.shape[0])
-        if agnp.all(self.dimensions == agnp.array([1])):
-            return agsp.stats.multivariate_normal.logpdf(value, mu, cov)
-        else:
-            return agnp.sum(agsp.stats.multivariate_normal.logpdf(value, mu, cov))
+    def log_density(self):
+        return tf.reduce_sum(tf.contrib.distributions.MultivariateNormalFullCovariance(self.mu, self.cov).log_prob(self.value()))
+
+    def sample(self, shape):
+        return tf.random_normal(shape) * self.cov + self.mu
 

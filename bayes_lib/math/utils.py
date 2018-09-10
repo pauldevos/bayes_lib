@@ -1,10 +1,10 @@
-import autograd.numpy as agnp
+import tensorflow as tf
 
 def logit(x):
-    return agnp.log(x/(1 - x))
+    return tf.log(x/(1 - x))
 
 def inv_logit(y):
-    return 1/(1 + agnp.exp(-y))
+    return 1/(1 + tf.exp(-y))
 
 def grad_inv_logit(y):
     t = inv_logit(y)
@@ -17,13 +17,13 @@ def linear(y):
     return y
 
 def exp(y):
-    return agnp.exp(y)
+    return tf.exp(y)
 
 def tanh(y):
-    return agnp.tanh(y)
+    return tf.tanh(y)
 
 def grad_tanh(y):
-    return 1 - (agnp.tanh(y)**2)
+    return 1 - (tf.tanh(y)**2)
 
 # Aliases
 sigmoid = inv_logit

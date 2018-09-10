@@ -1,18 +1,14 @@
 import numpy as np
 import abc
-from ..model import Model
-from ..rvs import RandomVariable, get_rv_value
 from scipy.stats import norm, lognorm
 import pathos.pools as pp
 import random
 
-class MarkovJumpProcess(RandomVariable):
+class MarkovJumpProcess(object):
 
-    def __init__(self, name, initial_state, params, termination_time, max_n_steps = np.inf, observed = None):
-        super().__init__(name, observed = observed)
+    def __init__(self, initial_state, params, max_n_steps = np.inf, observed = None):
         self.initial_state = initial_state
         self.params = params
-        self.termination_time = termination_time
 
     def single_step(self, state, params, s = False):
         rates = params * self.compute_propensities(state)
@@ -51,8 +47,8 @@ class MarkovJumpProcess(RandomVariable):
         if observation_times is None and termination_time is None:
             raise TypeError("Must specify either a set of observation times or a termination time")
         
-        initial_state = get_rv_value(self.initial_state, s = s)
-        params = get_rv_value(self.params, s = s)
+        initial_state = self.initial_state
+        params = self.params
         states = []
         
         # If simulating at specific times, step using deltas
@@ -94,17 +90,18 @@ class MarkovJumpProcess(RandomVariable):
     @abc.abstractmethod
     def do_reaction(self, reaction_idx, state):
         return
-    
-    def check_value(self, v):
-        return True
 
-    def sample(self, max_n_steps = np.inf):
-        return self.sim(termination_time = self.termination_time, max_n_steps = max_n_steps, s = True)
+    def set_params(self, params):
+        self.params = params
+    
+    def sample(self, observation_times = None, termination_time = None, max_n_steps = np.inf):
+        return self.sim(observation_times = observation_times, termination_time = termination_time, max_n_steps = max_n_steps, s = True)
 
     def obs_log_likelihood(self, v, r):
         return np.sum(norm.logpdf(v, r, 10))
     
     # Computes an approximate log density using PMCMC
+    # bootstrap filtering
     def log_density(self, n_smc = 100, v = None):
         p = pp.ProcessPool()
         if v is None:
@@ -119,11 +116,11 @@ class MarkovJumpProcess(RandomVariable):
 
         # Generate particles with shape n_smc, N_dims, N_time_points
         particles = np.zeros((n_smc, T.shape[0], N))
-        params = get_rv_value(self.params)
+        params = self.params
 
         # Sample initial positions for the particles
         for i in range(n_smc):
-            particles[i,0,:] = get_rv_value(self.initial_state)
+            particles[i,0,:] = self.initial_state
 
         llhood_est = 0
         
@@ -156,11 +153,11 @@ class MarkovJumpProcess(RandomVariable):
 
 class BirthDeathProcess(MarkovJumpProcess):
 
-    def __init__(self, name, initial_state, birth_rate, death_rate, termination_time, max_n_steps = np.inf, observed = None):
+    def __init__(self, initial_state, birth_rate, death_rate, max_n_steps = np.inf, observed = None):
         self.birth_rate = birth_rate
         self.death_rate = death_rate
         params = [birth_rate, death_rate]
-        super().__init__(name, initial_state, params, termination_time, max_n_steps = max_n_steps, observed = observed)
+        super().__init__(initial_state, params, max_n_steps = max_n_steps, observed = observed)
         self.reactions = np.array([[1],[-1]])
 
     def compute_propensities(self, state):
@@ -172,12 +169,12 @@ class BirthDeathProcess(MarkovJumpProcess):
 
 class LotkaVolterra(MarkovJumpProcess):
 
-    def __init__(self, name, initial_state, birth_rate, interaction_rate, death_rate, termination_time, max_n_steps = np.inf, observed = None):
+    def __init__(self, initial_state, birth_rate, interaction_rate, death_rate, max_n_steps = np.inf, observed = None):
         self.birth_rate = birth_rate
         self.interaction_rate = interaction_rate
         self.death_rate = death_rate
         params = [birth_rate, interaction_rate, death_rate]
-        super().__init__(name, initial_state, params, termination_time, max_n_steps = max_n_steps, observed = observed)
+        super().__init__(initial_state, params, termination_time, max_n_steps = max_n_steps, observed = observed)
         self.reactions = np.array([[1,0],[-1,1],[0,-1]])
         
     def compute_propensities(self, state):
@@ -188,13 +185,13 @@ class LotkaVolterra(MarkovJumpProcess):
 
 class LotkaVolterra2(MarkovJumpProcess):
 
-    def __init__(self, name, initial_state, ir1, br, dr, ir2, termination_time, max_n_steps = np.inf, observed = None):
+    def __init__(self, initial_state, ir1, br, dr, ir2, max_n_steps = np.inf, observed = None):
         self.ir1 = ir1
         self.br = br
         self.dr = dr
         self.ir2 = ir2
         params = [self.ir1, self.br, self.dr, self.ir2]
-        super().__init__(name, initial_state, params, termination_time, max_n_steps = max_n_steps, observed = observed)
+        super().__init__(initial_state, params, max_n_steps = max_n_steps, observed = observed)
         self.reactions = np.array([[1,0],[-1,0],[0,1],[0,-1]])
 
     def compute_propensities(self, state):

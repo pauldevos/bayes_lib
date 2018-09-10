@@ -24,7 +24,7 @@ class Optimizer(object):
 
 class GradientDescent(Optimizer):
 
-    def __init__(self, learning_rate = 0.1, clip = None):
+    def __init__(self, learning_rate = 0.01, clip = None):
         self.learning_rate = learning_rate
         self.clip = clip
 

@@ -1,107 +1,86 @@
-import abc
-from ..core import Node
+import tensorflow as tf
+
 from .transform import *
 from ..model import *
 
-class RandomVariable(Node):
-
+class RandomVariable(tf.Variable):
+    
+    # Can the log density be differentiated w.r.t. the parameters?
     is_differentiable = False
-    transform = None
-    #input_nodes = []
 
-    def __init__(self, name, observed, dimensions = 1, transform = None):
-        super().__init__(name)
-        self.input_nodes = []
+    # Can samples be reparameterized as a function of simple noise?
+    is_reparameterizable = False
 
-        if dimensions == 1:
-            self.dimensions = agnp.array([1])
-        else:
-            self.dimensions = dimensions
-        if transform is not None:
-            if not transform.is_differentiable:
-                self.is_differentiable = False
-            self.transform = transform
-        if observed is not None:
-            self.is_observed = True
-            self.set_dependencies([observed])
-            self.value = observed
-            self.constrained_value = self.value
-            self.jdet = 1
-            self.dimensions = self.input_nodes[0].dimensions
-        else:
+    def __init__(self, observed, default_value, transform = None, *args, **kwargs):
+        self.transform = transform
+        if observed is None:
+            self.observed = default_value
             self.is_observed = False
-            self.value = None
-            self.constrained_value = None
+            trainable = True
+        else:
+            self.observed = observed
+            self.is_observed = True
+            self.jdet = 1.
+            trainable = False
+        super().__init__(default_value, trainable = trainable, *args, **kwargs)
         Model.get_context().add_random_variable(self)
 
-    def set_dependencies(self, inodes):
-        for node in inodes:
-            if isinstance(node, Node):
-                node.consumers.append(self)
-                self.input_nodes.append(node)
-            else:
-                n = Constant("C",node)
-                n.consumers.append(self)
-                self.input_nodes.append(n)
-
-    # Transform stored value from unconstrained to constrained
-    # and returns the correction term
-    def apply_transform(self, v, det = False):
+    def transform_det(self, value):
         if self.transform is not None:
-            # Constrained
-            x = self.transform.inverse_transform(v)
-            if det:
-                jdet = self.transform.transform_jacobian_det(v)
-                return x, jdet
-            else:
-                return x
+            uv = self.transform.inverse_transform(value)
+            det = self.transform.transform_jacobian_det(value)
+            return uv, det
         else:
-            if det:
-                return v, 1
-            else:
-                return v
+            return value, 1.
 
-    def set_value(self, value):
-        if not self.is_observed:
-            self.value = value
-            self.constrained_value, self.jdet = self.apply_transform(value, det = True) 
+    def transform_assign(self, value):
+        uv, det = self.transform_det(value)
+        tv = self.assign(uv)
+        self.jdet = det
+        return tv
+
+    def transform_value(self, value):
+        uv, _ = self.transform_det(value)
+        return uv
+
+    def value(self):
+        if self.is_observed:
+            return self.observed
+        else:
+            return super().value()
 
     @abc.abstractmethod
-    def log_density(self, constrained_value, *args):
+    def log_density(self):
         return
     
-    def log_density_and_jacobian(self, *args):
-        if self.is_observed:
-            return self.log_density(*args)
-        else:
-            return self.log_density(self.constrained_value, *args) + agnp.log(self.jdet)
+    @abc.abstractmethod
+    def sample(self, shape):
+        return
+
+    def log_density_and_jacobian(self):
+        return self.log_density() + tf.log(self.jdet)
 
 class DefaultConstrainedRandomVariable(RandomVariable):
 
-    # Transform stored value from unconstrained to constrained
-    # and returns the correction term
-    def apply_transform(self, v, det = False):
-        x = self.default_transform.inverse_transform(v)
-        if det:
-            jdet = self.default_transform.transform_jacobian_det(v)
-            x2, jdet_ret = super().apply_transform(x, det = det)
-            return x2, jdet * jdet_ret
-        else:
-            x2 = super().apply_transform(x, det = det)
-            return x2
+    def transform_det(self, value):
+        x = self.default_transform.inverse_transform(value)
+        jdet = self.default_transform.transform_jacobian_det(value)
+        x2, jdet2 = super().transform_det(x)
+        return x2, jdet * jdet2
 
 class PositiveRandomVariable(DefaultConstrainedRandomVariable):
     
-    def __init__(self, name, dimensions = 1, transform = None, observed = None):
+    def __init__(self, observed, default_value, trasnform = None, *args, **kwargs):
         self.default_transform = LowerBoundRVTransform(0)
         if isinstance(transform, LowerBoundRVTransform):
             transform = None
-        super().__init__(name, dimensions = dimensions, transform = transform, observed = observed)
+        super().__init__(observed, default_value, transform = transform, *args, **kwargs)
 
 class BoundedRandomVariable(DefaultConstrainedRandomVariable):
 
-    def __init__(self, name, a, b, dimensions = 1, transform = None, observed = None):
+    def __init__(self, observed, default_value, a, b, transform = None, *args, **kwargs):
+
         self.default_transform = LowerUpperBoundRVTransform(a, b)
         if isinstance(transform, LowerUpperBoundRVTransform):
             transform = None
-        super().__init__(name, dimensions = dimensions, transform = transform, observed = observed)
+        super().__init__(observed, default_value, transform = transform, *args, **kwargs)

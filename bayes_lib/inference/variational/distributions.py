@@ -1,8 +1,8 @@
 import numpy as np
-import autograd.scipy as agsp
+import tensorflow as tf
+import abc
 import autograd.numpy as agnp
 import autograd
-import abc
 from bayes_lib.math.utils import sigmoid, grad_sigmoid, tanh, grad_tanh
 
 class VariationalDistributionNotDifferentiableException(Exception):
@@ -60,6 +60,7 @@ class ReparameterizableVariationalDistribution(VariationalDistribution):
     def sample_p(self, variational_params, n_samples):
         return
 
+"""
 class PlanarNormalizingFlow(ReparameterizableVariationalDistribution, DifferentiableVariationalDistribution):
 
     def __init__(self, n_layers, shared_params = False):
@@ -170,75 +171,115 @@ class PlanarNormalizingFlow(ReparameterizableVariationalDistribution, Differenti
     def grad_log_density(self, variational_samples):
         return agnp.array([self.grad_log_density_p(self.variational_params, variational_samples[i,:]) for i in range(variational_samples.shape[0])])
 
-class MeanField(DifferentiableVariationalDistribution, ReparameterizableVariationalDistribution):
+"""
+class MeanField(object):
 
     is_differentiable = True
     is_reparameterizable = True
 
-    def initialize(self, n_model_params, init = None):
-        self.n_model_params = n_model_params
-        if init is None:
-            vm = np.random.normal(0,1/agnp.sqrt(self.n_model_params),self.n_model_params)
-            vs = np.random.normal(0,1/agnp.sqrt(self.n_model_params),self.n_model_params)
-            self.variational_params = np.hstack([vm, vs])
-        else:
-            self.variational_params = init
+    def initialize(self, model, n_mc_samples = 1, n_grad_samples = 1):
+        self.model = model
+        self.n_model_params = self.model.n_params
+        self.v_means = tf.placeholder(tf.float32, [self.model.n_params])
+        self.v_stds = tf.placeholder(tf.float32, [self.model.n_params])
+        self.compile_(n_mc_samples, n_grad_samples)
 
-    @property
-    def v_means(self):
-        return self.__v_means
+    def get_variational_params(self):
+        return [self.v_means, self.v_stds]
 
-    @v_means.setter
-    def v_means(self, v_means):
-        self.__v_means = v_means
+    def compile_(self, n_mc_samples, n_grad_samples):
+        self.mc_rng = tf.random_normal([n_mc_samples, self.model.n_params])
+        with tf.control_dependencies([self.mc_rng]):
+            self.s_op = self.sample_(self.mc_rng)
+        self.g_rng = tf.random_normal([n_grad_samples, self.model.n_params])
+        with tf.control_dependencies([self.g_rng]):
+            self.s_op_g = self.sample_(self.g_rng)
+            self.g_s_op = [self.grad_sample_(self.g_rng[i,:]) for i in range(n_grad_samples)]
+    
+    def sample_(self, rng):
+        return self.v_means + rng * tf.exp(self.v_stds)
 
-    @property
-    def v_stds(self):
-        return self.__v_stds
+    def grad_sample_(self, rng):
+        return tf.stack(tf.gradients(self.sample_(rng), [self.v_means, self.v_stds]))
 
-    @v_stds.setter
-    def v_stds(self, v_stds):
-        self.__v_stds = agnp.exp(v_stds)
+    def sample(self, variational_params, n_samples):
+        rng = tf.random_normal([n_samples, self.model.n_params])
+        return self.model.sess.run(self.sample_(rng), feed_dict = {self.v_means : variational_params[:self.model.n_params], self.v_stds: variational_params[self.model.n_params:]})
+ 
+    def sample_p(self, variational_params):
+        return self.model.sess.run([self.mc_rng, self.s_op], feed_dict = {self.v_means : variational_params[:self.model.n_params], self.v_stds : variational_params[self.model.n_params:]})
 
-    @VariationalDistribution.variational_params.setter
-    def variational_params(self, variational_params):
-        self.v_means = variational_params[:self.n_model_params]
-        self.v_stds = variational_params[self.n_model_params:]
-        self._variational_params = variational_params
-
-    def sample(self, n_samples):
-        v_samples = np.random.normal(0, 1, size = (n_samples, self.n_model_params))
-        v_samples = self.v_means + v_samples * self.v_stds
-        return v_samples
-
-    """
-    Methods to specify that log_density of variational distribution is directly differentiable
-    """
-    def log_density(self, variational_samples):
-        return agsp.stats.multivariate_normal.logpdf(variational_samples, self.v_means, np.diag(self.v_stds))
-
-    def grad_log_density(self, variational_samples):
-        grad_values = np.zeros((variational_samples.shape[0], self.n_model_params * 2))
-        v_vars = self.v_stds**2
-        diffs = variational_samples - self.v_means
-        grad_values[:,:self.n_model_params] = diffs/v_vars
-        grad_values[:,self.n_model_params:] = -1 + (diffs**2)/v_vars
-        return grad_values
-
-    """
-    Methods to specify that log_density is reparameterizable
-    """
-    def sample_p(self, variational_params, n_samples):
-        v_means, v_stds = variational_params[:self.n_model_params], agnp.exp(variational_params[self.n_model_params:])
-        return v_means + v_stds * agnp.random.normal(0, 1, size = (n_samples, self.n_model_params))
-
+    def grad_sample_p(self, variational_params):
+        return self.model.sess.run([self.s_op_g, self.g_s_op], feed_dict = {self.v_means : variational_params[:self.model.n_params], self.v_stds : variational_params[self.model.n_params:]})   
     def entropy(self, variational_params, variational_samples):
         v_stds = variational_params[self.n_model_params:]
-        return 0.5 * self.n_model_params * (1.0 + agnp.log(2 * agnp.pi)) + agnp.sum(v_stds)
+        return 0.5 * self.n_model_params * (1.0 + np.log(2 * np.pi)) + np.sum(v_stds)
 
     def grad_entropy(self, variatianal_params, variational_samples):
-        return agnp.hstack([agnp.zeros(self.n_model_params), agnp.ones(self.n_model_params)])
+        return np.hstack([np.zeros(self.n_model_params), np.ones(self.n_model_params)])
 
+    def entropy_op(self):
+        return 0.5 * self.n_model_params * (1.0 + tf.log(2 * np.pi)) + tf.reduce_sum(self.v_stds)
+
+    def feed_dict_update(self, feed_dict, variational_params):
+        if feed_dict is None:
+            feed_dict = {}
+
+        v_dict = {self.v_means: variational_params[self.n_model_params:],
+                  self.v_stds : variational_params[:self.n_model_params]}
+        v_dict.update(feed_dict)
+        return v_dict
+
+class FullRank(object):
+
+    is_differentiable = True
+    is_reparameterizable = True
+
+    def initialize(self, model, n_mc_samples = 1, n_grad_samples = 1):
+        self.model = model
+        self.n_model_params = self.model.n_params
+        self.v_means = tf.placeholder(tf.float32, [self.model.n_params])
+        self.v_cov_sqrt = tf.placeholder(tf.float32, [self.model.n_params*self.model.n_params])
+        self.compile_(n_mc_samples, n_grad_samples)
+
+        self.grad_entropy_ = autograd.grad(self.entropy)
+
+    def compile_(self, n_mc_samples, n_grad_samples):
+        self.mc_rng = tf.random_normal([n_mc_samples, self.model.n_params])
+        with tf.control_dependencies([self.mc_rng]):
+            self.s_op = self.sample_(self.mc_rng)
+        self.g_rng = tf.random_normal([n_grad_samples, self.model.n_params])
+        with tf.control_dependencies([self.g_rng]):
+            self.s_op_g = self.sample_(self.g_rng)
+            self.g_s_op = [self.grad_sample_(tf.expand_dims(self.g_rng[i,:],0)) for i in range(n_grad_samples)]
+    
+    def sample_(self, rng):
+        v_cov_sqrt_ = tf.reshape(self.v_cov_sqrt, [self.n_model_params, self.n_model_params])
+        L = tf.cholesky(tf.matmul(tf.transpose(v_cov_sqrt_), v_cov_sqrt_))
+        return self.v_means + tf.matmul(rng,L)
+
+    def grad_sample_(self, rng):
+        return tf.concat(tf.gradients(self.sample_(rng), [self.v_means, self.v_cov_sqrt]), 0)
+
+    def sample(self, variational_params, n_samples):
+        rng = tf.random_normal([n_samples, self.model.n_params])
+        return self.model.sess.run(self.sample_(rng), feed_dict = {self.v_means : variational_params[:self.model.n_params], self.v_cov_sqrt: variational_params[self.model.n_params:]})
+ 
+    def sample_p(self, variational_params):
+        return self.model.sess.run([self.mc_rng, self.s_op], feed_dict = {self.v_means : variational_params[:self.model.n_params], self.v_cov_sqrt : variational_params[self.model.n_params:]})
+
+    def grad_sample_p(self, variational_params):
+        return self.model.sess.run([self.s_op_g, self.g_s_op], feed_dict = {self.v_means : variational_params[:self.model.n_params], self.v_cov_sqrt : variational_params[self.model.n_params:]})   
+    
+    def entropy(self, variational_params, variational_samples):
+        v_cov_sqrt = variational_params[self.n_model_params:].reshape((self.n_model_params, self.n_model_params))
+        cov = agnp.dot(v_cov_sqrt.T, v_cov_sqrt)
+        return 0.5 * self.n_model_params * (1.0 + agnp.log(2 * agnp.pi)) + 0.5 * agnp.log(agnp.linalg.det(cov))
+
+    def grad_entropy(self, variational_params, variational_samples):
+        return self.grad_entropy_(variational_params, variational_samples)
+
+"""
 class FullRank(DifferentiableVariationalDistribution, ReparameterizableVariationalDistribution):
 
     def initialize(self, n_model_params, init = None):
@@ -295,9 +336,7 @@ class FullRank(DifferentiableVariationalDistribution, ReparameterizableVariation
         grad_values[:,self.n_model_params:] = -np.apply_along_axis(grad, 1, diff)
         return grad_values
 
-    """
-    Methods to specify reparameterizable
-    """
+    #Methods to specify reparameterizable
     def sample_p(self, variational_params, n_samples):
         v_means = variational_params[:self.n_model_params]
         v_cov_sqrt = variational_params[self.n_model_params:].reshape((self.n_model_params, self.n_model_params))
@@ -311,7 +350,5 @@ class FullRank(DifferentiableVariationalDistribution, ReparameterizableVariation
         v_cov = variational_params[self.n_model_params:].reshape((self.n_model_params, self.n_model_params))
         cov = agnp.dot(v_cov.T, v_cov)
         return 0.5 * self.n_model_params * (1.0 + agnp.log(2 * agnp.pi)) + 0.5 * agnp.log(agnp.linalg.det(cov))
-
-
-
+    """
 

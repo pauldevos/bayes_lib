@@ -108,3 +108,6 @@ venv.bak/
 
 # results folders
 tests/results/
+
+# Mac files
+.DS_Store
